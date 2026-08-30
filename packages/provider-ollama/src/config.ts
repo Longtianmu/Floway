@@ -82,6 +82,9 @@ export const parseOllamaUpstreamConfig = (config: unknown): OllamaUpstreamConfig
   if (models.some(model => model.kind === 'rerank')) {
     throw new Error('Malformed ollama upstream config: rerank models require a custom upstream');
   }
+  if (models.some(model => model.kind === 'moderation' || model.endpoints.openaiModerations !== undefined)) {
+    throw new Error('Malformed ollama upstream config: moderation models require a custom upstream');
+  }
   return {
     baseUrl: baseUrlField(config.baseUrl),
     ...(apiKey !== undefined ? { apiKey } : {}),

@@ -5,6 +5,7 @@ import { FormProvider, useForm } from 'react-hook-form';
 import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 
+import type { UpstreamRecord } from '../../../src/api/types';
 import type { ModelListingFailure, UpstreamEditorValues } from '../../../src/components/upstream-editor/data';
 import { valuesFromRecord } from '../../../src/components/upstream-editor/data';
 import { UpstreamWorkspace, type ModelsYamlDraft } from '../../../src/components/upstream-editor/workspace';
@@ -20,6 +21,7 @@ vi.mock('../../../src/components/upstream-editor/models-yaml-editor', () => ({
 
 vi.mock('../../../src/components/ui/scroll-area', () => ({
   ScrollArea: forwardRef<HTMLDivElement, PropsWithChildren>(({ children }, ref) => <div ref={ref}>{children}</div>),
+  useScrollAreaHost: () => ({ hostProps: {}, viewportRef: () => {}, viewportStyle: {} }),
 }));
 
 const model = (id: string) => ({
@@ -30,7 +32,7 @@ const model = (id: string) => ({
   endpoints: { openaiResponses: {} },
 });
 
-const record = upstreamRecord('up_test', {
+const customRecord = upstreamRecord('up_test', {
   name: 'Test',
   kind: 'custom',
   config: {
@@ -45,7 +47,18 @@ const record = upstreamRecord('up_test', {
   state: null,
 });
 
-function Harness({ modelsError = null }: { modelsError?: ModelListingFailure | null }) {
+const azureRecord = upstreamRecord('up_azure', {
+  name: 'Azure',
+  kind: 'azure',
+  config: {
+    endpoint: 'https://example.openai.azure.com',
+    apiKey: 'key',
+    models: [model('model-a')],
+  },
+  state: null,
+});
+
+function Harness({ modelsError = null, record = customRecord }: { modelsError?: ModelListingFailure | null; record?: UpstreamRecord }) {
   const form = useForm<UpstreamEditorValues>({ defaultValues: valuesFromRecord(record) });
   const [modelsYamlDraft, setModelsYamlDraft] = useState<ModelsYamlDraft | null>(null);
   return (
@@ -214,5 +227,20 @@ describe('upstream model listing failure wording', () => {
 
     renderInApp(<Harness modelsError={{ message: 'Malformed custom upstream config', upstreamListingFailed: false }} />);
     expect(screen.getByText(i18n.t('dashboard.upstreamEditor.models.listingFailedWithDetail', { message: 'Malformed custom upstream config' }))).toBeTruthy();
+  });
+});
+
+describe('upstream model kind availability', () => {
+  it('offers Moderation only on Custom upstreams', () => {
+    const custom = renderInApp(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('dashboard.upstreamEditor.models.editNamed', { name: 'model-a' }) }));
+    fireEvent.click(screen.getByRole('combobox', { name: models('kind') }));
+    expect(screen.getByRole('option', { name: models('kindValue.moderation') })).toBeTruthy();
+    custom.unmount();
+
+    renderInApp(<Harness record={azureRecord} />);
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('dashboard.upstreamEditor.models.editNamed', { name: 'model-a' }) }));
+    fireEvent.click(screen.getByRole('combobox', { name: models('kind') }));
+    expect(screen.queryByRole('option', { name: models('kindValue.moderation') })).toBe(null);
   });
 });

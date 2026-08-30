@@ -40,6 +40,7 @@ const CUSTOM_PATH_OVERRIDE_KEYS = [
   '/responses',
   '/messages',
   '/embeddings',
+  '/moderations',
   '/alpha/search',
   '/images/generations',
   '/images/edits',

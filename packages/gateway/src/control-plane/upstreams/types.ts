@@ -36,6 +36,7 @@ import type {
 import type {
   CustomModelsFetch,
   CustomRawModel,
+  EffectiveCustomRawModel,
   CustomUpstreamConfig as StoredCustomUpstreamConfig,
 } from '@floway-dev/provider-custom';
 import type {
@@ -43,7 +44,7 @@ import type {
   OllamaUpstreamState as StoredOllamaUpstreamState,
 } from '@floway-dev/provider-ollama';
 
-export type { ClaudeCodeQuotaWindow, CodexQuotaSnapshot, CodexQuotaSnapshotMap, CustomModelsFetch, CustomRawModel, ProxyFallbackEntry };
+export type { ClaudeCodeQuotaWindow, CodexQuotaSnapshot, CodexQuotaSnapshotMap, CustomModelsFetch, CustomRawModel, EffectiveCustomRawModel, ProxyFallbackEntry };
 
 type CustomConfigFields = Pick<
   StoredCustomUpstreamConfig,
@@ -226,5 +227,5 @@ export interface ListedUpstreamModel extends UpstreamModelConfig {
 }
 
 export type ListUpstreamModelsResponse =
-  | { kind: 'custom'; data: CustomRawModel[] }
+  | { kind: 'custom'; data: EffectiveCustomRawModel[] }
   | { kind: Exclude<UpstreamProviderKind, 'custom'>; data: ListedUpstreamModel[] };

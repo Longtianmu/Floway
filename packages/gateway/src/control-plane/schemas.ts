@@ -53,6 +53,7 @@ const modelEndpointsSchema = z.object({
   openaiResponses: z.object({}).optional(),
   anthropicMessages: z.object({}).optional(),
   openaiEmbeddings: z.object({}).optional(),
+  openaiModerations: z.object({}).optional(),
   openaiImagesGenerations: z.object({}).optional(),
   openaiImagesEdits: z.object({}).optional(),
   openaiAudioTranscriptions: z.object({}).optional(),
@@ -199,6 +200,9 @@ const azureConfigSchema = z.object({
 }).refine(config => config.models.every(model => model.kind !== 'rerank'), {
   message: 'rerank models require a custom upstream',
   path: ['models'],
+}).refine(config => config.models.every(model => model.kind !== 'moderation' && model.endpoints.openaiModerations === undefined), {
+  message: 'moderation models require a custom upstream',
+  path: ['models'],
 });
 
 const ollamaConfigSchema = z.object({
@@ -212,6 +216,9 @@ const ollamaConfigSchema = z.object({
   models: z.array(upstreamModelSchema).optional(),
 }).refine(config => config.models?.every(model => model.kind !== 'rerank') !== false, {
   message: 'rerank models require a custom upstream',
+  path: ['models'],
+}).refine(config => config.models?.every(model => model.kind !== 'moderation' && model.endpoints.openaiModerations === undefined) !== false, {
+  message: 'moderation models require a custom upstream',
   path: ['models'],
 });
 

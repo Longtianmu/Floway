@@ -385,6 +385,47 @@ test('Custom provider uses configured endpoints regardless of per-model hints in
   );
 });
 
+test('Custom provider callOpenAIModerations posts unchanged input with the raw upstream model', async () => {
+  const provider = createCustomProvider(buildCustomUpstream({
+    modelsFetchEnabled: false,
+    models: [{
+      upstreamModelId: 'vendor-safety-v2',
+      publicModelId: 'safety',
+      kind: 'moderation',
+      endpoints: { openaiModerations: {} },
+    }],
+  })).instance;
+  let forwarded: { url: string; body: Record<string, unknown> } | undefined;
+
+  await withMockedFetch(
+    async request => {
+      forwarded = { url: request.url, body: await request.json() as Record<string, unknown> };
+      return jsonResponse({ id: 'modr-1', model: 'vendor-safety-v2', results: [] });
+    },
+    async () => {
+      const [model] = await provider.getProvidedModels(directFetcher);
+      const input = [
+        { type: 'text', text: 'hello' },
+        { type: 'image_url', image_url: { url: 'https://example.com/image.png' } },
+      ];
+      const result = await provider.callOpenAIModerations(model, { input }, undefined, noopUpstreamCallOptions());
+      assertEquals(result.modelKey, 'vendor-safety-v2');
+      assertEquals(result.response.status, 200);
+    },
+  );
+
+  assertEquals(forwarded, {
+    url: 'https://custom.example.com/v1/moderations',
+    body: {
+      input: [
+        { type: 'text', text: 'hello' },
+        { type: 'image_url', image_url: { url: 'https://example.com/image.png' } },
+      ],
+      model: 'vendor-safety-v2',
+    },
+  });
+});
+
 test('Custom provider projects display_name / created / limits / pricing from a Floway-shaped /models response', async () => {
   await withMockedFetch(
     () => jsonResponse({

@@ -1,6 +1,6 @@
 import { PUBLIC_DATA_PLANE_ROUTES, type PublicDataPlaneRouteId } from '@floway-dev/protocols/common';
 
-export type ApiDocsGroup = 'models' | 'generation' | 'media' | 'rerank' | 'search';
+export type ApiDocsGroup = 'models' | 'generation' | 'media' | 'safety' | 'rerank' | 'search';
 
 export interface ApiDocsEndpoint<Name extends string = string> {
   docs: string;
@@ -48,6 +48,8 @@ export const apiDocsEndpoints = [
   endpoint('openaiImagesGenerations', { group: 'media', name: 'openAiImageGeneration', docs: `${openAi}/images/create` }),
   endpoint('openaiImagesEdits', { group: 'media', name: 'openAiImageEdit', docs: `${openAi}/images/createEdit` }),
   endpoint('openaiAudioTranscriptions', { group: 'media', name: 'openAiTranscription', docs: `${openAi}/audio/createTranscription` }),
+
+  endpoint('openaiModerations', { group: 'safety', name: 'openAiModerations', docs: 'https://developers.openai.com/api/reference/resources/moderations/methods/create' }),
 
   endpoint('cohereV1Rerank', { group: 'rerank', name: 'cohereV1Rerank', docs: 'https://docs.cohere.com/reference/rerank' }),
   endpoint('cohereV2Rerank', { group: 'rerank', name: 'cohereV2Rerank', docs: 'https://docs.cohere.com/v2/reference/rerank' }),

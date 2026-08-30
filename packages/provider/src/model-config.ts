@@ -58,7 +58,7 @@ export const optionalStringField = (value: unknown, label: string): string | und
 };
 
 const MODEL_ENDPOINT_KEYS: ReadonlySet<ModelEndpointKey> = new Set<ModelEndpointKey>([
-  'openaiCompletions', 'openaiChatCompletions', 'openaiResponses', 'anthropicMessages', 'openaiEmbeddings', 'openaiImagesGenerations', 'openaiImagesEdits', 'rerank', 'openaiAudioTranscriptions',
+  'openaiCompletions', 'openaiChatCompletions', 'openaiResponses', 'anthropicMessages', 'openaiEmbeddings', 'openaiModerations', 'openaiImagesGenerations', 'openaiImagesEdits', 'rerank', 'openaiAudioTranscriptions',
 ]);
 
 // The structured per-model capability map. A present key declares the model is

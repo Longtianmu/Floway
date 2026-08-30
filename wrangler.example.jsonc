@@ -75,6 +75,7 @@
       "/messages",
       "/messages/*",
       "/embeddings",
+      "/moderations",
       "/images/*",
       "/models",
       "/azure-api.codex/*"

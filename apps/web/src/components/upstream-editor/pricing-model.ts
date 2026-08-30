@@ -39,9 +39,17 @@ export const PRICING_FIELDS_BY_KIND: Record<ModelKind, readonly PricingField[]> 
   chat: tokenPricingFields('input_tokens', 'input_cache_read_tokens', 'input_cache_write_tokens', 'input_cache_write_1h_tokens', 'output_tokens'),
   embedding: tokenPricingFields('input_tokens'),
   image: tokenPricingFields('input_tokens', 'input_image_tokens', 'output_tokens', 'output_image_tokens'),
+  moderation: [],
   transcription: [tokenPricingField('input_tokens'), tokenPricingField('input_audio_tokens'), PRICING_FIELD_BY_METRIC.input_audio_seconds, tokenPricingField('output_tokens')],
   rerank: [tokenPricingField('input_tokens'), PRICING_FIELD_BY_METRIC.rerank_searches],
 };
+
+// OpenAI moderation responses expose no billable usage vector, so there is no
+// default rate to author. A non-standard upstream may still publish pricing;
+// keep that existing value editable rather than hiding and potentially losing it.
+// https://developers.openai.com/api/reference/resources/moderations
+export const pricingEditorIsRelevant = (kind: ModelKind, pricing: ModelPricing | undefined): boolean =>
+  PRICING_FIELDS_BY_KIND[kind].length > 0 || pricing !== undefined;
 
 export interface PricingThresholdDraft {
   operator: PricingThresholdOperator;

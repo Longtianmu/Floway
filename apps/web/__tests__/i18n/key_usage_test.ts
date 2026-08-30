@@ -133,6 +133,7 @@ describe('translation key usage', () => {
   // model kind, billing metric, or feature flag is added.
   it.each([
     ['dashboard.modelAliases.kind', MODEL_KINDS],
+    ['dashboard.upstreamEditor.models.kindValue', MODEL_KINDS],
     ['dashboard.upstreamEditor.models.pricingMetrics', BILLING_METRICS],
     ['dashboard.upstreamEditor.flags.entries', OPTIONAL_FLAG_IDS.flatMap(id => [`${id}.label`, `${id}.description`])],
     ['dashboard.upstreams.providers', ALL_PROVIDER_KINDS],

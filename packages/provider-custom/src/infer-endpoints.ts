@@ -14,6 +14,12 @@
 // snapshots like gpt-image-2-2026-04-21). Other image families (dall-e, imagen,
 // flux, sdxl, stable-diffusion) are intentionally NOT recognized — operators
 // who run those against a custom upstream annotate the model explicitly.
+// Moderation matches only OpenAI's published `omni-moderation-*` and
+// `text-moderation-*` ids (including a provider namespace such as `openai/`).
+// Keeping the suffixes closed avoids turning an unrelated model whose name
+// merely contains "moderation" into a moderation-only catalog row:
+// https://developers.openai.com/api/docs/models/omni-moderation-latest
+// https://developers.openai.com/api/docs/models/text-moderation-latest
 // Audio transcription matches the standard OpenAI families (`whisper-*` and
 // `*-transcribe-*`) after published `kind` metadata had the first chance to
 // decide. OpenAI keeps the model field open while listing these canonical ids:
@@ -37,6 +43,12 @@ const EMBEDDING_TOKENS = new Set([
 
 const AUDIO_TRANSCRIPTION_TOKENS = new Set(['whisper', 'transcribe']);
 
+const isOpenAIModerationModelId = (id: string): boolean => {
+  const familyId = id.slice(id.lastIndexOf('/') + 1);
+  return /^omni-moderation-(?:latest|\d{4}-\d{2}-\d{2})$/.test(familyId)
+    || /^text-moderation-(?:latest|stable|007)$/.test(familyId);
+};
+
 export const inferEndpointsFromModelId = (id: string): ModelEndpoints | null => {
   const lower = id.toLowerCase();
   if (lower.split(/[/_\-.]+/).some(token => EMBEDDING_TOKENS.has(token))) {
@@ -44,6 +56,9 @@ export const inferEndpointsFromModelId = (id: string): ModelEndpoints | null => 
   }
   if (/^gpt-image(-|$)/.test(lower)) {
     return { openaiImagesGenerations: {}, openaiImagesEdits: {} };
+  }
+  if (isOpenAIModerationModelId(lower)) {
+    return { openaiModerations: {} };
   }
   if (lower.split(/[/_\-.]+/).some(token => AUDIO_TRANSCRIPTION_TOKENS.has(token))) {
     return { openaiAudioTranscriptions: {} };

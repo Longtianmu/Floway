@@ -170,7 +170,10 @@ export function UpstreamEditorPage({ data }: { data: UpstreamEditorLoaderData })
 
   const submitForm = () => {
     if (modelsYamlDraft !== null) {
-      const parsed = parseModels(modelsYamlDraft.text, { allowRerank: record.kind === 'custom' });
+      const parsed = parseModels(modelsYamlDraft.text, {
+        allowModeration: record.kind === 'custom',
+        allowRerank: record.kind === 'custom',
+      });
       if (!parsed.ok) {
         setModelsYamlDraft({ ...modelsYamlDraft, error: parsed.message });
         return;

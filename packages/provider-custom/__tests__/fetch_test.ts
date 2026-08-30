@@ -6,6 +6,7 @@ import {
   customFetchOpenAIAudioTranscriptions,
   customFetchOpenAIChatCompletions,
   customFetchOpenAIEmbeddings,
+  customFetchOpenAIModerations,
   customFetchAnthropicMessages,
   customFetchAnthropicMessagesCountTokens,
   customFetchModels,
@@ -58,6 +59,7 @@ test('typed transports use default /v1/* paths', async () => {
       await customFetchAnthropicMessagesCountTokens(config, { method: 'POST', body: '{}' }, { fetcher: directFetcher, wrapUpstreamCall: identityWrapUpstreamCall });
       await customFetchAlphaSearch(config, { method: 'POST', body: '{}' }, { fetcher: directFetcher, wrapUpstreamCall: identityWrapUpstreamCall });
       await customFetchOpenAIEmbeddings(config, { method: 'POST', body: '{}' }, { fetcher: directFetcher, wrapUpstreamCall: identityWrapUpstreamCall });
+      await customFetchOpenAIModerations(config, { method: 'POST', body: '{}' }, { fetcher: directFetcher, wrapUpstreamCall: identityWrapUpstreamCall });
       await customFetchOpenAIAudioTranscriptions(config, { method: 'POST', body: new FormData() }, { fetcher: directFetcher, wrapUpstreamCall: identityWrapUpstreamCall });
       await customFetchModels(config, { method: 'GET' }, { fetcher: directFetcher, wrapUpstreamCall: identityWrapUpstreamCall });
     },
@@ -71,6 +73,7 @@ test('typed transports use default /v1/* paths', async () => {
     'https://custom.example.com/v1/messages/count_tokens',
     'https://custom.example.com/v1/alpha/search',
     'https://custom.example.com/v1/embeddings',
+    'https://custom.example.com/v1/moderations',
     'https://custom.example.com/v1/audio/transcriptions',
     'https://custom.example.com/v1/models',
   ]);
@@ -84,6 +87,7 @@ test('admin pathOverrides replace defaults and propagate to derived sub-paths', 
       pathOverrides: {
         '/messages': '/api/v1/messages',
         '/responses': '/api/v1/responses',
+        '/moderations': '/safety/check',
         '/alpha/search': '/api/search',
       },
     },
@@ -100,6 +104,7 @@ test('admin pathOverrides replace defaults and propagate to derived sub-paths', 
       await customFetchAnthropicMessagesCountTokens(config, { method: 'POST', body: '{}' }, { fetcher: directFetcher, wrapUpstreamCall: identityWrapUpstreamCall });
       await customFetchOpenAIResponsesCompact(config, { method: 'POST', body: '{}' }, { fetcher: directFetcher, wrapUpstreamCall: identityWrapUpstreamCall });
       await customFetchAlphaSearch(config, { method: 'POST', body: '{}' }, { fetcher: directFetcher, wrapUpstreamCall: identityWrapUpstreamCall });
+      await customFetchOpenAIModerations(config, { method: 'POST', body: '{}' }, { fetcher: directFetcher, wrapUpstreamCall: identityWrapUpstreamCall });
       // Endpoints without an override fall back to the OpenAI default.
       await customFetchOpenAIChatCompletions(config, { method: 'POST', body: '{}' }, { fetcher: directFetcher, wrapUpstreamCall: identityWrapUpstreamCall });
     },
@@ -110,6 +115,7 @@ test('admin pathOverrides replace defaults and propagate to derived sub-paths', 
     'https://custom.example.com/api/v1/messages/count_tokens',
     'https://custom.example.com/api/v1/responses/compact',
     'https://custom.example.com/api/search',
+    'https://custom.example.com/safety/check',
     'https://custom.example.com/v1/chat/completions',
   ]);
 });

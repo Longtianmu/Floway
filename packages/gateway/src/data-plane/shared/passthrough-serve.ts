@@ -6,7 +6,8 @@
 // (single-shot body, OpenAI-shape `usage` block); /v1/completions runs the
 // `sse` branch (frame-level transformFrame closure + settleUsage).
 // Endpoint-owned response strategies handle specialized media-type state
-// machines. Usage and request-performance writes are scheduled through the
+// machines. Moderations also uses `json`, with a null billing extractor because
+// the upstream response has no usage block. Usage and request-performance writes are scheduled through the
 // runtime's background scheduler so transient repo failures cannot turn a
 // successful 200 from upstream into a 502.
 

@@ -212,6 +212,32 @@ test('assertAzureUpstreamRecord rejects rerank models', () => {
   );
 });
 
+test('assertAzureUpstreamRecord rejects moderation models and endpoint declarations', () => {
+  for (const model of [
+    {
+      upstreamModelId: 'moderator',
+      endpoints: { openaiModerations: {} },
+    },
+    {
+      upstreamModelId: 'mixed-model',
+      kind: 'chat',
+      endpoints: { openaiChatCompletions: {}, openaiModerations: {} },
+    },
+  ]) {
+    assertThrows(
+      () => assertAzureUpstreamRecord({
+        ...baseRecord,
+        config: {
+          ...(baseRecord.config as Record<string, unknown>),
+          models: [model],
+        },
+      }),
+      Error,
+      'moderation models require a custom upstream',
+    );
+  }
+});
+
 test('assertAzureUpstreamRecord rejects per-model flagOverrides with unknown flag id', () => {
   assertThrows(
     () =>

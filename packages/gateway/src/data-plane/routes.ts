@@ -9,6 +9,7 @@ import { openaiAudioTranscriptions } from './openai-audio/http.ts';
 import { openaiCompletions } from './openai-completions/http.ts';
 import { openaiEmbeddings } from './openai-embeddings/http.ts';
 import { openaiImagesEdits, openaiImagesGenerations } from './openai-images/http.ts';
+import { openaiModerations } from './openai-moderations/http.ts';
 import { mountPublicRoute } from './public-route.ts';
 import { rerank } from './rerank/serve.ts';
 import type { AuthVars } from '../middleware/auth.ts';
@@ -23,6 +24,7 @@ export const mountDataPlane = (app: Hono<{ Variables: AuthVars }>) => {
   mountPublicRoute(PUBLIC_DATA_PLANE_ROUTES.geminiModels, (method, path) => app.on(method, path, serveGeminiModels));
   mountPublicRoute(PUBLIC_DATA_PLANE_ROUTES.geminiModel, (method, path) => app.on(method, path, serveGeminiModelInfo));
   mountPublicRoute(PUBLIC_DATA_PLANE_ROUTES.openaiEmbeddings, (method, path) => app.on(method, path, openaiEmbeddings));
+  mountPublicRoute(PUBLIC_DATA_PLANE_ROUTES.openaiModerations, (method, path) => app.on(method, path, openaiModerations));
   mountPublicRoute(PUBLIC_DATA_PLANE_ROUTES.openaiCompletions, (method, path) => app.on(method, path, openaiCompletions));
   mountPublicRoute(PUBLIC_DATA_PLANE_ROUTES.openaiImagesGenerations, (method, path) => app.on(method, path, openaiImagesGenerations));
   mountPublicRoute(PUBLIC_DATA_PLANE_ROUTES.openaiImagesEdits, (method, path) => app.on(method, path, openaiImagesEdits));

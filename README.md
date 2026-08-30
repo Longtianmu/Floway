@@ -55,6 +55,7 @@ translation. Both planes are served by the same gateway process.
 | OpenAI Chat Completions | `POST /v1/chat/completions` |
 | OpenAI Responses | `POST /v1/responses`, `POST /v1/responses/compact`, WebSocket `GET /v1/responses` |
 | OpenAI Embeddings | `POST /v1/embeddings` |
+| OpenAI Moderations | `POST /v1/moderations` |
 | OpenAI Images | `POST /v1/images/generations`, `POST /v1/images/edits` |
 | OpenAI Audio Transcriptions | `POST /v1/audio/transcriptions` |
 | OpenAI Models | `GET /v1/models`, `GET /models` |
@@ -76,6 +77,12 @@ override that protocol's canonical path; there is no upstream-wide rerank path.
 Audio transcription is a buffered multipart passthrough for Custom, Azure, and
 Ollama-compatible upstreams. JSON, text, subtitle, and transcription SSE
 responses retain their upstream wire shape.
+
+Moderations is a native JSON passthrough for Custom upstreams and for Copilot
+models only when their live catalog explicitly advertises the endpoint. Custom
+model discovery recognizes OpenAI's `omni-moderation-*` and
+`text-moderation-*` families; an omitted request model follows OpenAI's
+`omni-moderation-latest` default.
 
 ### Upstreams
 

@@ -177,6 +177,65 @@ test('Copilot provider exposes the highest-priority non-Claude endpoint', async 
   );
 });
 
+test('Copilot exposes and calls moderation only when /models metadata advertises it', async () => {
+  const { copilotUpstream } = await setupCopilotTest();
+  const provider = createCopilotProvider(copilotUpstream).instance;
+  let forwarded: { url: string; body: Record<string, unknown> } | undefined;
+
+  await withMockedFetch(
+    async request => {
+      const url = new URL(request.url);
+
+      if (url.hostname === 'update.code.visualstudio.com') {
+        return jsonResponse(['1.110.1']);
+      }
+      if (url.pathname === '/copilot_internal/v2/token') {
+        return jsonResponse({
+          token: 'copilot-access-token',
+          expires_at: 4102444800,
+          refresh_in: 3600,
+          endpoints: { api: 'https://api.individual.githubcopilot.com' },
+        });
+      }
+      if (url.pathname === '/models') {
+        return jsonResponse(copilotModels([
+          { id: 'safety-explicit', supported_endpoints: ['/v1/moderations'] },
+          { id: 'omni-moderation-latest', supported_endpoints: [] },
+          { id: 'mixed-chat-safety', supported_endpoints: ['/chat/completions', '/moderations'] },
+        ]));
+      }
+      if (url.pathname === '/v1/moderations') {
+        forwarded = { url: request.url, body: await request.json() as Record<string, unknown> };
+        return jsonResponse({ id: 'modr-1', model: 'safety-explicit', results: [] });
+      }
+
+      throw new Error(`Unhandled fetch ${request.url}`);
+    },
+    async () => {
+      const models = await provider.getProvidedModels(directFetcher);
+      assertEquals(models.map(model => ({ id: model.id, kind: model.kind, endpoints: model.endpoints })), [
+        { id: 'safety-explicit', kind: 'moderation', endpoints: { openaiModerations: {} } },
+        { id: 'omni-moderation-latest', kind: 'chat', endpoints: {} },
+        { id: 'mixed-chat-safety', kind: 'chat', endpoints: { openaiChatCompletions: {} } },
+      ]);
+
+      const result = await provider.callOpenAIModerations(
+        models[0],
+        { input: ['first', 'second'] },
+        undefined,
+        noopUpstreamCallOptions(),
+      );
+      assertEquals(result.modelKey, 'safety-explicit');
+      assertEquals(result.response.status, 200);
+    },
+  );
+
+  assertEquals(forwarded, {
+    url: 'https://api.individual.githubcopilot.com/v1/moderations',
+    body: { input: ['first', 'second'], model: 'safety-explicit' },
+  });
+});
+
 test('Copilot provider exposes only OpenAI Responses for Claude when available', async () => {
   const { copilotUpstream } = await setupCopilotTest();
   const instance = createCopilotProvider(copilotUpstream);

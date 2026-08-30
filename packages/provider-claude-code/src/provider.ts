@@ -112,6 +112,7 @@ export const createClaudeCodeProvider = (record: UpstreamRecord): Provider => {
     callOpenAIChatCompletions: rejectUnsupported('callOpenAIChatCompletions'),
     callOpenAIResponses: rejectUnsupported('callOpenAIResponses'),
     callOpenAIEmbeddings: rejectUnsupported('callOpenAIEmbeddings'),
+    callOpenAIModerations: rejectUnsupported('callOpenAIModerations'),
     callOpenAIImagesGenerations: rejectUnsupported('callOpenAIImagesGenerations'),
     callOpenAIImagesEdits: rejectUnsupported('callOpenAIImagesEdits'),
     callOpenAIAudioTranscriptions: rejectUnsupported('callOpenAIAudioTranscriptions'),

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   PRICING_FIELDS_BY_KIND,
+  pricingEditorIsRelevant,
   pricingEntryDraftsFor,
   pricingFieldRate,
   pricingFromDrafts,
@@ -46,6 +47,13 @@ describe('pricing editor model', () => {
 
     expect(withRate(draft!, searches, '2').rates.rerank_searches).toBe('0.002');
     expect(withRate(draft!, seconds, '2').rates.input_audio_seconds).toBe('2');
+  });
+
+  it('does not invent a moderation billing metric but preserves published pricing', () => {
+    expect(PRICING_FIELDS_BY_KIND.moderation).toEqual([]);
+    expect(pricingEditorIsRelevant('moderation', undefined)).toBe(false);
+    expect(pricingEditorIsRelevant('moderation', baseOnly({ input_tokens: '1' }))).toBe(true);
+    expect(pricingEditorIsRelevant('chat', undefined)).toBe(true);
   });
 
   it('clears a rate when its input is emptied', () => {

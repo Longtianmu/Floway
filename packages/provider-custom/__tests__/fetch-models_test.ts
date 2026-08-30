@@ -39,6 +39,17 @@ test('fetchCustomModels returns the parsed response on 2xx', async () => {
   );
 });
 
+test('fetchCustomModels retains an explicit moderation kind from a Floway-shaped catalog', async () => {
+  const { config } = assertCustomUpstreamRecord(upstreamRecord());
+  await withMockedFetch(
+    () => jsonResponse({ object: 'list', data: [{ id: 'vendor-safety', kind: 'moderation' }] }),
+    async () => {
+      const result = await fetchCustomModels(config, directFetcher);
+      assertEquals(result.data[0], { id: 'vendor-safety', kind: 'moderation' });
+    },
+  );
+});
+
 test('fetchCustomModels accepts an Anthropic-shape response with no top-level `object`', async () => {
   const { config } = assertCustomUpstreamRecord(upstreamRecord());
   await withMockedFetch(

@@ -188,3 +188,54 @@ describe('upstreamModelSchema rerank', () => {
     expect(createUpstreamBody.safeParse(mixed).success).toBe(true);
   });
 });
+
+describe('upstreamModelSchema moderation', () => {
+  const moderationModel = () => ({
+    upstreamModelId: 'moderator',
+    kind: 'moderation' as const,
+    endpoints: { openaiModerations: {} },
+  });
+
+  test('accepts moderation models on a custom upstream', () => {
+    expect(createUpstreamBody.safeParse({
+      kind: 'custom',
+      name: 'moderation',
+      hue: 210,
+      config: {
+        baseUrl: 'https://moderation.example.com',
+        authStyle: 'bearer',
+        ingressHeadersRules: [],
+        apiKey: 'key',
+        endpoints: {},
+        models: [moderationModel()],
+      },
+    }).success).toBe(true);
+  });
+
+  test('rejects moderation models on Azure', () => {
+    const body = structuredClone(baseAzure);
+    const model = body.config.models[0] as Record<string, unknown>;
+    model.kind = 'moderation';
+    model.endpoints = { openaiModerations: {} };
+    expect(createUpstreamBody.safeParse(body).success).toBe(false);
+  });
+
+  test('rejects moderation models on Ollama', () => {
+    expect(createUpstreamBody.safeParse({
+      kind: 'ollama',
+      name: 'ollama',
+      hue: 210,
+      config: {
+        baseUrl: 'https://ollama.example.com',
+        models: [moderationModel()],
+      },
+    }).success).toBe(false);
+  });
+
+  test('does not let an explicit chat kind hide a moderation endpoint', () => {
+    const body = structuredClone(baseAzure);
+    const model = body.config.models[0] as Record<string, unknown>;
+    model.endpoints = { openaiChatCompletions: {}, openaiModerations: {} };
+    expect(createUpstreamBody.safeParse(body).success).toBe(false);
+  });
+});

@@ -523,7 +523,15 @@ test('POST /api/upstreams/list-models fetches a draft custom upstream model list
       const url = new URL(request.url);
       if (url.hostname === 'custom.example.com' && url.pathname === '/v1/models') {
         assertEquals(request.headers.get('authorization'), 'Bearer sk-test');
-        return jsonResponse({ object: 'list', data: [{ id: 'gpt-a' }, { id: 'gpt-b', display_name: 'GPT B' }] });
+        return jsonResponse({
+          object: 'list',
+          data: [
+            { id: 'gpt-a' },
+            { id: 'gpt-b', display_name: 'GPT B' },
+            { id: 'omni-moderation-latest' },
+            { id: 'omni-moderationish' },
+          ],
+        });
       }
       throw new Error(`Unhandled fetch ${request.url}`);
     },
@@ -533,8 +541,14 @@ test('POST /api/upstreams/list-models fetches a draft custom upstream model list
       }));
       assertEquals(resp.status, 200);
       const body = (await resp.json()) as { data: Array<Record<string, unknown>> };
-      assertEquals(body.data.map(m => m.id), ['gpt-a', 'gpt-b']);
+      assertEquals(body.data.map(m => m.id), ['gpt-a', 'gpt-b', 'omni-moderation-latest', 'omni-moderationish']);
       assertEquals(body.data[1].display_name, 'GPT B');
+      assertEquals(body.data[0].kind, 'chat');
+      assertEquals(body.data[0].endpoints, { openaiChatCompletions: {} });
+      assertEquals(body.data[2].kind, 'moderation');
+      assertEquals(body.data[2].endpoints, { openaiModerations: {} });
+      assertEquals(body.data[3].kind, 'chat');
+      assertEquals(body.data[3].endpoints, { openaiChatCompletions: {} });
     },
   );
 });
@@ -686,9 +700,8 @@ test('POST /api/upstreams/list-models with a persisted id forces a fresh upstrea
       }));
       assertEquals(resp.status, 200);
       const body = (await resp.json()) as { data: Array<{ id?: string }> };
-      // Custom returns the raw upstream row shape (id-keyed), not the
-      // dashboard-projected UpstreamModelConfig — the SPA translates
-      // through the draft's endpoints.
+      // Custom retains the upstream's id-keyed metadata while adding the
+      // provider-owned effective capability used by the dashboard.
       assertEquals(body.data.map(m => m.id), ['fresh-model']);
       assertEquals(upstreamCalls, 1);
       const cached = (await repo.upstreams.getById(savedRecord.id))?.modelsCache;

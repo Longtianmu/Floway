@@ -216,6 +216,17 @@ test('assertCustomUpstreamRecord accepts the standard audio transcription path o
   assertEquals(config.pathOverrides, { '/audio/transcriptions': '/speech/to-text' });
 });
 
+test('assertCustomUpstreamRecord accepts a moderation path override', () => {
+  const { config } = assertCustomUpstreamRecord({
+    ...baseRecord,
+    config: {
+      ...(baseRecord.config as Record<string, unknown>),
+      pathOverrides: { '/moderations': '/safety/check' },
+    },
+  });
+  assertEquals(config.pathOverrides, { '/moderations': '/safety/check' });
+});
+
 test('assertCustomUpstreamRecord treats a null modelsFetch.endpoint as no override', () => {
   const { config } = assertCustomUpstreamRecord({
     ...baseRecord,

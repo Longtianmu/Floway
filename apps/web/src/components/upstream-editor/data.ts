@@ -1,6 +1,6 @@
 import type { InferRequestType } from 'hono/client';
 
-import { configuredEndpoints, PATH_OVERRIDE_PATHS, shapeForKind } from './endpoints';
+import { PATH_OVERRIDE_PATHS, shapeForKind } from './endpoints';
 import { api, callApi } from '../../api/client';
 import type {
   BackoffRow,
@@ -10,7 +10,6 @@ import type {
   UpstreamRecordEnvelope,
 } from '../../api/types';
 import type { MODEL_LISTING_FAILURE_CODE as GatewayModelListingFailureCode } from '@floway-dev/gateway/data-plane/models/shared';
-import { kindForEndpoints, type ModelEndpoints } from '@floway-dev/protocols/common';
 import type { UpstreamProviderKind } from '@floway-dev/provider/model';
 import type { UpstreamModelConfig } from '@floway-dev/provider/model-config';
 import { MODEL_PREFIX_MAX_LENGTH, MODEL_PREFIX_REGEX } from '@floway-dev/provider/model-prefix';
@@ -171,10 +170,7 @@ export const fetchModelCatalog = async (
     };
   }
 
-  const endpoints = record.kind === 'custom'
-    ? (values.config as Extract<UpstreamRecord, { kind: 'custom' }>['config']).endpoints
-    : {};
-  const discovered = discoveredModelsFromResponse(result.data, endpoints);
+  const discovered = discoveredModelsFromResponse(result.data);
   if (!isPersisted(record)) return { discovered, modelsError: null, refreshed: null };
 
   const refreshed = await callApi(() => api.api.upstreams[':id'].$get({ param: { id: record.id } }, { init }));
@@ -318,21 +314,21 @@ export const updateBody = (record: UpstreamRecord, values: UpstreamEditorValues)
 
 export const discoveredModelsFromResponse = (
   response: ListUpstreamModelsResponse,
-  endpoints: ModelEndpoints,
 ): UpstreamModelConfig[] => {
   if (response.kind !== 'custom') return response.data;
   return response.data.map(model => {
-    const kind = model.kind ?? 'chat';
-    const shape = kind === 'chat' ? { endpoints: configuredEndpoints(endpoints) } : shapeForKind(kind, { endpoints });
+    const shape = model.kind === 'rerank'
+      ? shapeForKind('rerank', { endpoints: model.endpoints })
+      : { endpoints: structuredClone(model.endpoints) };
     return {
       upstreamModelId: model.id,
       publicModelId: model.id,
-      kind,
+      kind: model.kind,
       ...shape,
       ...(model.display_name ?? model.name ? { display_name: model.display_name ?? model.name } : {}),
       ...(model.limits ? { limits: model.limits } : {}),
       ...(model.pricing ? { pricing: model.pricing } : {}),
-      ...(model.chat !== undefined && kindForEndpoints(shape.endpoints) === 'chat' ? { chat: model.chat } : {}),
+      ...(model.chat !== undefined && model.kind === 'chat' ? { chat: model.chat } : {}),
     };
   });
 };

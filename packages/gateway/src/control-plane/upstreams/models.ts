@@ -10,7 +10,7 @@ import { backgroundSchedulerFromContext } from '../../runtime/background.ts';
 import { getRuntimeLocation } from '../../runtime/runtime-info.ts';
 import type { listModelsBody } from '../schemas.ts';
 import { ProviderModelsUnavailableError, type Fetcher, type ProviderModel, type ProxyFallbackEntry, type UpstreamRecord } from '@floway-dev/provider';
-import { assertCustomUpstreamRecord, fetchCustomModels, projectCustomModels } from '@floway-dev/provider-custom';
+import { assertCustomUpstreamRecord, fetchCustomModels, projectCustomModels, projectEffectiveCustomRawModel } from '@floway-dev/provider-custom';
 
 // `upstreamModelId` is the wire-side identifier the provider will send when
 // a caller invokes the public `model.id` — Claude Code exposes
@@ -39,9 +39,9 @@ const reshapeModelForDashboard = (model: ProviderModel): ListedUpstreamModel => 
 // refresh. Always live-fetches on the control plane; when
 // record.id !== '' the request also warms/refreshes the SWR cache via
 // `fetchUpstreamModelsCached` so a subsequent data-plane call picks up
-// the fresh catalog. Custom's response stays the raw upstream row shape
-// (dashboard translates through the draft's endpoints); every other
-// kind returns UpstreamModelConfig-shaped rows.
+// the fresh catalog. Custom rows retain their upstream metadata, but the
+// owning provider adds the effective kind/endpoints used by both planes;
+// every other kind returns UpstreamModelConfig-shaped rows.
 export const listModels = async (c: CtxWithJson<typeof listModelsBody>) => {
   const { record } = c.req.valid('json');
   if (!isValidProviderKind(record.kind)) {
@@ -111,7 +111,10 @@ export const listModels = async (c: CtxWithJson<typeof listModelsBody>) => {
         // separately.
         result ??= await fetchCustomModels(assertedConfig, fetcher);
       }
-      return c.json({ kind, data: result.data });
+      return c.json({
+        kind,
+        data: result.data.map(model => projectEffectiveCustomRawModel(model, assertedConfig.endpoints)),
+      });
     }
     // Copilot / codex / claude-code / azure / ollama — use the provider factory.
     // Force through the SWR cache when the record is persisted so the

@@ -88,3 +88,29 @@ test('assertOllamaUpstreamRecord rejects rerank models', () => {
     'rerank models require a custom upstream',
   );
 });
+
+test('assertOllamaUpstreamRecord rejects moderation models and endpoint declarations', () => {
+  for (const model of [
+    {
+      upstreamModelId: 'moderator',
+      endpoints: { openaiModerations: {} },
+    },
+    {
+      upstreamModelId: 'mixed-model',
+      kind: 'chat',
+      endpoints: { openaiChatCompletions: {}, openaiModerations: {} },
+    },
+  ]) {
+    assertThrows(
+      () => assertOllamaUpstreamRecord({
+        ...baseRecord,
+        config: {
+          ...(baseRecord.config as Record<string, unknown>),
+          models: [model],
+        },
+      }),
+      Error,
+      'moderation models require a custom upstream',
+    );
+  }
+});

@@ -3,7 +3,7 @@ import { COMPACTION_TRIGGER, compactionResponse } from './compaction.ts';
 import { assertCopilotUpstreamRecord } from './config.ts';
 import { COPILOT_DEFAULT_FLAGS, defaultFlagsForCopilotModel } from './defaults.ts';
 import { fetchCopilotModels } from './fetch-models.ts';
-import { copilotFetchOpenAIChatCompletions, copilotFetchOpenAIEmbeddings, copilotFetchAnthropicMessages, copilotFetchAnthropicMessagesCountTokens, copilotFetchOpenAIResponses, type CopilotDataPlaneFetchOptions } from './fetch.ts';
+import { copilotFetchOpenAIChatCompletions, copilotFetchOpenAIEmbeddings, copilotFetchOpenAIModerations, copilotFetchAnthropicMessages, copilotFetchAnthropicMessagesCountTokens, copilotFetchOpenAIResponses, type CopilotDataPlaneFetchOptions, type CopilotModerationsPath } from './fetch.ts';
 import { COPILOT_ANTHROPIC_MESSAGES_BOUNDARY, COPILOT_ANTHROPIC_MESSAGES_COUNT_TOKENS_BOUNDARY } from './interceptors/anthropic-messages/index.ts';
 import type { AnthropicMessagesBoundaryCtx } from './interceptors/anthropic-messages/types.ts';
 import { COPILOT_OPENAI_CHAT_COMPLETIONS_BOUNDARY } from './interceptors/openai-chat-completions/index.ts';
@@ -55,6 +55,10 @@ const copilotRawToProviderModel = (model: CopilotRawModel): Omit<ProviderModel, 
 // one onto our structured endpoint key. Both `/x` and `/v1/x` spellings appear.
 // Copilot is the only upstream whose catalog speaks paths — operator config and
 // our own constants are structured — so this lives here, not in a shared helper.
+// `/moderations` is only recognized when metadata actually emits the official
+// OpenAI-compatible spelling; recognizing it is not a claim that Copilot
+// currently advertises or serves it:
+// https://developers.openai.com/api/reference/resources/moderations/methods/create
 const copilotPathToModelEndpoint = (path: string): ModelEndpointKey | undefined => {
   switch (path) {
   case '/chat/completions':
@@ -69,6 +73,9 @@ const copilotPathToModelEndpoint = (path: string): ModelEndpointKey | undefined 
   case '/embeddings':
   case '/v1/embeddings':
     return 'openaiEmbeddings';
+  case '/moderations':
+  case '/v1/moderations':
+    return 'openaiModerations';
   case '/images/generations':
   case '/v1/images/generations':
     return 'openaiImagesGenerations';
@@ -105,7 +112,14 @@ const copilotModelEndpoints = (rawModels: readonly CopilotRawModel[]): ModelEndp
     return { openaiChatCompletions: {} };
   }
 
-  return rawModels.some(model => rawModelSupportsEndpoint(model, 'openaiEmbeddings')) ? { openaiEmbeddings: {} } : {};
+  if (rawModels.some(model => rawModelSupportsEndpoint(model, 'openaiEmbeddings'))) {
+    return { openaiEmbeddings: {} };
+  }
+
+  // Unlike the historical Claude Messages workaround above, moderation has
+  // no provider-owned fallback: Copilot receives this capability only when
+  // its own /models metadata explicitly advertises the path.
+  return rawModels.some(model => rawModelSupportsEndpoint(model, 'openaiModerations')) ? { openaiModerations: {} } : {};
 };
 
 const chatReasoningEffort = (body: Omit<OpenAIChatCompletionsPayload, 'model'>): string | undefined => (body.reasoning_effort && body.reasoning_effort !== 'none' ? body.reasoning_effort : undefined);
@@ -140,6 +154,12 @@ const rawModelFor = (model: ProviderModel, endpoint: ModelEndpointKey, hints: Mo
     throw new Error(`Copilot provider exposed ${endpoint} for ${model.id}, but no raw variant supports that endpoint`);
   }
   return resolveCopilotRawModel({ object: 'list', data: rawModels }, model.id, hints) ?? rawModels[0];
+};
+
+const moderationPathFor = (model: CopilotRawModel): CopilotModerationsPath => {
+  const path = (model.supported_endpoints ?? []).find(candidate => copilotPathToModelEndpoint(candidate) === 'openaiModerations');
+  if (path === '/moderations' || path === '/v1/moderations') return path;
+  throw new Error(`Copilot raw model ${model.id} was selected for openaiModerations without an advertised moderation path`);
 };
 
 const copilotOpenAIEmbeddingsBody = (body: Record<string, unknown>): Record<string, unknown> => {
@@ -458,6 +478,11 @@ export const createCopilotProvider = (record: UpstreamRecord): Provider => {
       return { response, modelKey: rawModel.id };
     },
     callOpenAIEmbeddings: (model, body, signal, opts) => call(copilotFetchOpenAIEmbeddings, copilotOpenAIEmbeddingsBody(body), signal, rawModelFor(model, 'openaiEmbeddings'), [...opts.headers], opts),
+    callOpenAIModerations: (model, body, signal, opts) => {
+      const rawModel = rawModelFor(model, 'openaiModerations');
+      const path = moderationPathFor(rawModel);
+      return call((config, init, options) => copilotFetchOpenAIModerations(config, path, init, options), body, signal, rawModel, [...opts.headers], opts);
+    },
     // Copilot has no /images/* upstream; catalog never emits a kind='image'
     // model, so these stubs are unreachable.
     callOpenAIImagesGenerations: rejectUnsupported('callOpenAIImagesGenerations'),

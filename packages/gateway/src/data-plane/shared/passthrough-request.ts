@@ -1,7 +1,9 @@
 // Preflight shared by the JSON passthrough endpoints. Each of them accepts an
-// arbitrary JSON object and forwards it upstream verbatim, so the only field
-// the gateway insists on is a non-empty `model` string — routing depends on
-// it. `requestName` prefixes the 400 messages so each endpoint names itself.
+// arbitrary JSON object and forwards it upstream verbatim. Routing still needs
+// a non-empty model id; most endpoints require it in the request, while an
+// endpoint whose upstream standard defines a default may provide that default
+// through `options`. `requestName` prefixes the 400 messages so each endpoint
+// names itself.
 
 interface JsonModelRequestBody {
   model?: unknown;
@@ -12,7 +14,11 @@ type PreparedJsonRequest =
   | { type: 'ok'; body: Record<string, unknown>; model: string }
   | { type: 'invalid'; message: string };
 
-export const prepareJsonModelRequest = (bytes: Uint8Array, requestName: string): PreparedJsonRequest => {
+export const prepareJsonModelRequest = (
+  bytes: Uint8Array,
+  requestName: string,
+  options: { defaultModel?: string } = {},
+): PreparedJsonRequest => {
   let request: JsonModelRequestBody;
   try {
     const parsed = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
@@ -22,6 +28,9 @@ export const prepareJsonModelRequest = (bytes: Uint8Array, requestName: string):
     request = parsed as JsonModelRequestBody;
   } catch {
     return { type: 'invalid', message: `${requestName} request body must be valid JSON.` };
+  }
+  if (request.model === undefined && options.defaultModel !== undefined) {
+    return { type: 'ok', body: request as Record<string, unknown>, model: options.defaultModel };
   }
   if (typeof request.model !== 'string' || request.model.length === 0) {
     return { type: 'invalid', message: `${requestName} request body must include a model string.` };

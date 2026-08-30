@@ -1,10 +1,10 @@
 import { assertCustomUpstreamRecord, type CustomUpstreamConfig } from './config.ts';
 import { CUSTOM_DEFAULT_FLAGS } from './defaults.ts';
 import { fetchCustomModels, type CustomModelsResponse, type CustomRawModel } from './fetch-models.ts';
-import { customFetchAlphaSearch, customFetchOpenAIAudioTranscriptions, customFetchOpenAIChatCompletions, customFetchOpenAICompletions, customFetchOpenAIEmbeddings, customFetchOpenAIImagesEdits, customFetchOpenAIImagesGenerations, customFetchAnthropicMessages, customFetchAnthropicMessagesCountTokens, customFetchRerank, customFetchOpenAIResponses, customFetchOpenAIResponsesCompact } from './fetch.ts';
+import { customFetchAlphaSearch, customFetchOpenAIAudioTranscriptions, customFetchOpenAIChatCompletions, customFetchOpenAICompletions, customFetchOpenAIEmbeddings, customFetchOpenAIModerations, customFetchOpenAIImagesEdits, customFetchOpenAIImagesGenerations, customFetchAnthropicMessages, customFetchAnthropicMessagesCountTokens, customFetchRerank, customFetchOpenAIResponses, customFetchOpenAIResponsesCompact } from './fetch.ts';
 import { inferEndpointsFromModelId } from './infer-endpoints.ts';
 import { parseAnthropicMessagesStream } from '@floway-dev/protocols/anthropic-messages';
-import { type ModelEndpoints, kindForEndpoints } from '@floway-dev/protocols/common';
+import { type ModelEndpoints, type ModelKind, kindForEndpoints } from '@floway-dev/protocols/common';
 import { parseOpenAIChatCompletionsStream } from '@floway-dev/protocols/openai-chat-completions';
 import { parseOpenAIResponsesStream, type OpenAIResponsesCompactionResult, toCompactPayloadShape } from '@floway-dev/protocols/openai-responses';
 import { DEFAULT_RERANK_PATHS, serializeRerankRequest } from '@floway-dev/protocols/rerank';
@@ -35,16 +35,31 @@ const customRawToProviderModel = (model: CustomRawModel): Omit<ProviderModel, 'k
   return partial;
 };
 
-// A published embedding/image/transcription kind maps directly to its endpoint;
-// chat takes the upstream default. Rerank rows are removed before this helper
-// because a kind alone cannot select their target wire. Unknown kinds use the
-// id heuristic, then fall back to the configured endpoints.
-const autoModelEndpoints = (model: CustomRawModel, configured: ModelEndpoints): ModelEndpoints => {
-  if (model.kind === 'embedding') return { openaiEmbeddings: {} };
-  if (model.kind === 'image') return { openaiImagesGenerations: {}, openaiImagesEdits: {} };
-  if (model.kind === 'transcription') return { openaiAudioTranscriptions: {} };
-  if (model.kind === 'chat') return configured;
-  return inferEndpointsFromModelId(model.id) ?? configured;
+export interface EffectiveCustomRawModel extends CustomRawModel {
+  kind: ModelKind;
+  endpoints: ModelEndpoints;
+}
+
+// This is the single effective-capability projection for both the data-plane
+// provider catalog and the control-plane model preview. A published non-chat
+// kind selects its endpoint family; otherwise the conservative id heuristic
+// runs before the row inherits the upstream-wide configured endpoints. Rerank
+// is projected for the dashboard, but finalizeCustomModels still withholds an
+// automatic rerank row because a kind alone cannot select its outbound wire
+// dialect.
+export const projectEffectiveCustomRawModel = (
+  model: CustomRawModel,
+  configured: ModelEndpoints,
+): EffectiveCustomRawModel => {
+  let endpoints: ModelEndpoints;
+  if (model.kind === 'embedding') endpoints = { openaiEmbeddings: {} };
+  else if (model.kind === 'image') endpoints = { openaiImagesGenerations: {}, openaiImagesEdits: {} };
+  else if (model.kind === 'moderation') endpoints = { openaiModerations: {} };
+  else if (model.kind === 'rerank') endpoints = { rerank: {} };
+  else if (model.kind === 'transcription') endpoints = { openaiAudioTranscriptions: {} };
+  else if (model.kind === 'chat') endpoints = configured;
+  else endpoints = inferEndpointsFromModelId(model.id) ?? configured;
+  return { ...model, kind: kindForEndpoints(endpoints), endpoints };
 };
 
 const finalizeCustomModels = (
@@ -59,10 +74,11 @@ const finalizeCustomModels = (
     // wires. The auto row remains visible in the dashboard's fetch result, but
     // only a manual row with rerankTarget enters the routable provider catalog.
     if (rawModel.kind === 'rerank') continue;
-    const endpoints = autoModelEndpoints(rawModel, configuredEndpoints);
+    const effective = projectEffectiveCustomRawModel(rawModel, configuredEndpoints);
+    const endpoints = effective.endpoints;
     models.push({
       ...customRawToProviderModel(rawModel),
-      kind: kindForEndpoints(endpoints),
+      kind: effective.kind,
       endpoints,
       providerData: rawModel.id,
       enabledFlags,
@@ -218,6 +234,7 @@ export const createCustomProvider = (record: UpstreamRecord): Provider => {
     callAnthropicMessages: (model, body, signal, opts) => callStreaming(customFetchAnthropicMessages, model, body, signal, headersForAnthropicMessagesCall(headersForCall(opts.headers), opts.anthropicBeta), parseAnthropicMessagesStream, opts),
     callAnthropicMessagesCountTokens: (model, body, signal, opts) => call(customFetchAnthropicMessagesCountTokens, model, body, signal, headersForAnthropicMessagesCall(headersForCall(opts.headers), opts.anthropicBeta), opts),
     callOpenAIEmbeddings: (model, body, signal, opts) => call(customFetchOpenAIEmbeddings, model, body, signal, headersForCall(opts.headers), opts),
+    callOpenAIModerations: (model, body, signal, opts) => call(customFetchOpenAIModerations, model, body, signal, headersForCall(opts.headers), opts),
     callOpenAIImagesGenerations: (model, body, signal, opts) => call(customFetchOpenAIImagesGenerations, model, body, signal, headersForCall(opts.headers), opts),
     callOpenAIImagesEdits: async (model, request, signal, opts) => {
       const rawModelId = rawModelIdOf(model);

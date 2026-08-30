@@ -73,6 +73,13 @@ describe('alias wire body', () => {
     })).toEqual({ limits: { max_context_window_tokens: 4096 } });
   });
 
+  it('keeps limits but drops chat metadata for a moderation alias', () => {
+    expect(metadataForKind('moderation', {
+      limits: { max_context_window_tokens: 32768 },
+      chat: { modalities: { input: ['text'], output: ['text'] } },
+    })).toEqual({ limits: { max_context_window_tokens: 32768 } });
+  });
+
   it('trims identifiers and normalizes empty fields, leaving the order to the server', () => {
     const values = aliasDefaults(existing);
     values.name = ' renamed '; values.displayName = ' ';
@@ -88,5 +95,16 @@ describe('alias wire body', () => {
     values.targets = [target('image-1', { verbosity: 'high' })];
     values.announcedMetadata = { limits: { max_output_tokens: 10 } };
     expect(aliasBody(values)).toMatchObject({ targets: [{ rules: {} }], announced_metadata: null });
+  });
+
+  it('drops chat rules but keeps announced limits for moderation aliases', () => {
+    const values = aliasDefaults(existing);
+    values.kind = 'moderation'; values.manualMetadata = true;
+    values.targets = [target('omni-moderation-latest', { verbosity: 'high' })];
+    values.announcedMetadata = { limits: { max_context_window_tokens: 32768 } };
+    expect(aliasBody(values)).toMatchObject({
+      targets: [{ rules: {} }],
+      announced_metadata: { limits: { max_context_window_tokens: 32768 } },
+    });
   });
 });

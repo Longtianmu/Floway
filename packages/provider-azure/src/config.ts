@@ -21,6 +21,9 @@ export const assertAzureUpstreamRecord = (record: UpstreamRecord): AzureUpstream
   if (models.some(model => model.kind === 'rerank')) {
     throw new Error('Malformed azure upstream config: rerank models require a custom upstream');
   }
+  if (models.some(model => model.kind === 'moderation' || model.endpoints.openaiModerations !== undefined)) {
+    throw new Error('Malformed azure upstream config: moderation models require a custom upstream');
+  }
 
   const config: AzureUpstreamConfig = {
     endpoint: azureEndpointField(record.config.endpoint, 'azure upstream config: endpoint'),

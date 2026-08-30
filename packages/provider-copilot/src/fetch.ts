@@ -3,6 +3,7 @@ import { parseCopilotQuotaHeaders, putCopilotQuota } from './quota.ts';
 import type { FetchInit, UpstreamFetchOptions } from '@floway-dev/provider';
 
 export type CopilotFetchConfig = CopilotAuth;
+export type CopilotModerationsPath = '/moderations' | '/v1/moderations';
 
 export interface CopilotDataPlaneFetchOptions extends UpstreamFetchOptions {
   /** Extends the runtime past the response so the quota persist below
@@ -67,5 +68,7 @@ export const copilotFetchAnthropicMessagesCountTokens = (config: CopilotFetchCon
   copilotFetchInternal(config, '/v1/messages/count_tokens', init, options);
 export const copilotFetchOpenAIEmbeddings = (config: CopilotFetchConfig, init: FetchInit, options: CopilotDataPlaneFetchOptions): Promise<Response> =>
   copilotFetchInternal(config, '/embeddings', init, options);
+export const copilotFetchOpenAIModerations = (config: CopilotFetchConfig, path: CopilotModerationsPath, init: FetchInit, options: CopilotDataPlaneFetchOptions): Promise<Response> =>
+  copilotFetchInternal(config, path, init, options);
 export const copilotFetchModels = (config: CopilotFetchConfig, init: FetchInit, options: CopilotDataPlaneFetchOptions): Promise<Response> =>
   copilotFetchInternal(config, '/models', init, options);

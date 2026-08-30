@@ -22,6 +22,7 @@ const endpointsSchema = z.object({
   openaiResponses: endpointSchema.optional(),
   anthropicMessages: endpointSchema.optional(),
   openaiEmbeddings: endpointSchema.optional(),
+  openaiModerations: endpointSchema.optional(),
   openaiImagesGenerations: endpointSchema.optional(),
   openaiImagesEdits: endpointSchema.optional(),
   openaiAudioTranscriptions: endpointSchema.optional(),

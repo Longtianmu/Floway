@@ -71,6 +71,8 @@ export const customFetchAnthropicMessagesCountTokens = (config: CustomUpstreamCo
   customFetchInternal(config, `${pathOverrideFor(config, '/messages')}/count_tokens`, init, options);
 export const customFetchOpenAIEmbeddings = (config: CustomUpstreamConfig, init: FetchInit, options: UpstreamFetchOptions): Promise<Response> =>
   customFetchInternal(config, pathOverrideFor(config, '/embeddings'), init, options);
+export const customFetchOpenAIModerations = (config: CustomUpstreamConfig, init: FetchInit, options: UpstreamFetchOptions): Promise<Response> =>
+  customFetchInternal(config, pathOverrideFor(config, '/moderations'), init, options);
 export const customFetchOpenAICompletions = (config: CustomUpstreamConfig, init: FetchInit, options: UpstreamFetchOptions): Promise<Response> =>
   customFetchInternal(config, pathOverrideFor(config, '/completions'), init, options);
 export const customFetchOpenAIImagesGenerations = (config: CustomUpstreamConfig, init: FetchInit, options: UpstreamFetchOptions): Promise<Response> =>

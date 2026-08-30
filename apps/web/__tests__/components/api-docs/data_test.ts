@@ -7,7 +7,7 @@ describe('API Docs catalog', () => {
   it('keeps every endpoint row unique and every group visible', () => {
     const identities = apiDocsEndpoints.map(endpoint => `${endpoint.method} ${endpoint.path}`);
     expect(new Set(identities).size).toBe(identities.length);
-    expect(apiDocsGroups).toEqual(['models', 'generation', 'media', 'rerank', 'search']);
+    expect(apiDocsGroups).toEqual(['models', 'generation', 'media', 'safety', 'rerank', 'search']);
   });
 
   it('covers every reference route and groups compatibility aliases', () => {
@@ -25,6 +25,11 @@ describe('API Docs catalog', () => {
       expect(documented).toHaveLength(route === 'geminiGenerateContentAction' ? 3 : 1);
       if (manifest.paths.length > 1) expect(documented[0].path).toBe(manifest.paths.join(', '));
     }
+  });
+
+  it('links Moderations to the current official create reference', () => {
+    expect(apiDocsEndpoints.find(endpoint => endpoint.route === 'openaiModerations')?.docs)
+      .toBe('https://developers.openai.com/api/reference/resources/moderations/methods/create');
   });
 
   it('renders a paste-ready authentication command', () => {

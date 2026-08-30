@@ -9,6 +9,7 @@ export const ENDPOINT_PATHS = {
   openaiResponses: '/responses',
   anthropicMessages: '/messages',
   openaiEmbeddings: '/embeddings',
+  openaiModerations: '/moderations',
   rerank: '/alpha/search',
   openaiImagesGenerations: '/images/generations',
   openaiImagesEdits: '/images/edits',
@@ -21,7 +22,7 @@ export const IMAGE_ENDPOINT_KEYS = ['openaiImagesGenerations', 'openaiImagesEdit
 // Every path the custom provider accepts an override for, in the order the
 // editor lists them. OpenAI Audio Transcriptions is deliberately absent from
 // the form yet kept in the value, so an override stored for it survives a save.
-export const PATH_OVERRIDE_PATHS = ([...CHAT_ENDPOINT_KEYS, 'openaiEmbeddings', 'rerank', ...IMAGE_ENDPOINT_KEYS] as const)
+export const PATH_OVERRIDE_PATHS = ([...CHAT_ENDPOINT_KEYS, 'openaiEmbeddings', 'openaiModerations', 'rerank', ...IMAGE_ENDPOINT_KEYS] as const)
   .map(key => ENDPOINT_PATHS[key]);
 
 export const endpointOptionsFor = (
@@ -34,27 +35,18 @@ export const endpointOptionsFor = (
 // operator confirms or changes it.
 const INITIAL_RERANK_TARGET: RerankTarget = { protocol: 'cohere-v2' };
 
-// What a discovered model declares when it names no kind of its own, or names
-// `chat`. The gateway hands both the upstream's configured map unchanged
-// (autoModelEndpoints, packages/provider-custom/src/provider.ts) and the auto
-// row says what the gateway will serve, so the row mirrors it rather than
-// taking the chat family the kind picker offers -- that filter would drop a
-// configured OpenAI Embeddings or rerank path and then persist the loss through the
-// auto-to-manual conversion.
-export const configuredEndpoints = (configured: ModelEndpoints): ModelEndpoints =>
-  Object.keys(configured).length ? structuredClone(configured) : { openaiChatCompletions: {} };
-
 // Everything a model's kind decides about its own shape, for every place that
-// puts a model into a kind: the discovered-model projection of a model that
-// declares a kind of its own, the kind picker, and the auto-to-manual
-// conversion. Chat and image models may be served by more than one endpoint, so
-// a selection already made inside the family is kept and only an empty one
-// falls back to the family default.
+// puts a model into a kind in the editor: the kind picker and auto-to-manual
+// conversion. Chat and image models may be served by more than one endpoint,
+// so a selection already made inside the family is kept and only an empty one
+// falls back to the family default. Auto-discovered capability is projected by
+// the owning provider on the server and is not re-inferred here.
 export const shapeForKind = (
   kind: ModelKind,
   current: { endpoints: ModelEndpoints; rerankTarget?: RerankTarget },
 ): { endpoints: ModelEndpoints; rerankTarget?: RerankTarget } => {
   if (kind === 'embedding') return { endpoints: { openaiEmbeddings: {} } };
+  if (kind === 'moderation') return { endpoints: { openaiModerations: {} } };
   if (kind === 'transcription') return { endpoints: { openaiAudioTranscriptions: {} } };
   if (kind === 'rerank') return { endpoints: { rerank: {} }, rerankTarget: current.rerankTarget ?? INITIAL_RERANK_TARGET };
   const family = kind === 'image' ? IMAGE_ENDPOINT_KEYS : CHAT_ENDPOINT_KEYS;

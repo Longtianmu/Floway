@@ -8,6 +8,7 @@ import { FeatureFlagsEditor } from './feature-flags';
 import { type ModelValidationField, modelValidationIssues } from './model-validation';
 import { useMonoLabelClass } from './mono-label';
 import { PricingEditor } from './pricing-editor';
+import { pricingEditorIsRelevant } from './pricing-model';
 import { RerankTargetEditor } from './rerank-target-editor';
 import { EditorSection } from './section';
 import type { UpstreamRecord } from '../../api/types';
@@ -135,10 +136,14 @@ export function ModelDetail({
               <Input className="!w-full" placeholder={t('dashboard.upstreamEditor.models.displayNamePlaceholder')} readOnly={fieldsReadOnly} value={row.config.display_name ?? ''} onChange={(_, data) => patch({ display_name: data.value || undefined })} />
             </Field>
             <Field className="min-w-0" label={t('dashboard.upstreamEditor.models.kind')}>
-              <Dropdown readOnly={fieldsReadOnly} selectedOptions={[row.config.kind]} value={modelKindLabel(row.config.kind)} onOptionSelect={(_, data) => data.optionValue !== undefined && setKind(data.optionValue as UpstreamModelConfig['kind'])}>
-                <Option value="chat">Chat</Option><Option value="embedding">Embedding</Option><Option value="image">Image</Option><Option value="transcription">Transcription</Option>
+              <Dropdown readOnly={fieldsReadOnly} selectedOptions={[row.config.kind]} value={t(`dashboard.upstreamEditor.models.kindValue.${row.config.kind}`)} onOptionSelect={(_, data) => data.optionValue !== undefined && setKind(data.optionValue as UpstreamModelConfig['kind'])}>
+                <Option value="chat">{t('dashboard.upstreamEditor.models.kindValue.chat')}</Option>
+                <Option value="embedding">{t('dashboard.upstreamEditor.models.kindValue.embedding')}</Option>
+                <Option value="image">{t('dashboard.upstreamEditor.models.kindValue.image')}</Option>
+                {record.kind === 'custom' && <Option value="moderation">{t('dashboard.upstreamEditor.models.kindValue.moderation')}</Option>}
+                <Option value="transcription">{t('dashboard.upstreamEditor.models.kindValue.transcription')}</Option>
                 {/* The gateway only accepts a rerank target on a custom upstream, so the kind is offered only where it can be saved. */}
-                {record.kind === 'custom' && <Option value="rerank">Rerank</Option>}
+                {record.kind === 'custom' && <Option value="rerank">{t('dashboard.upstreamEditor.models.kindValue.rerank')}</Option>}
               </Dropdown>
             </Field>
             <Field className="min-w-0" label={record.kind === 'azure' ? t('dashboard.upstreamEditor.models.deployment') : t('dashboard.upstreamEditor.models.upstreamId')} validationMessage={upstreamIdError} validationState={upstreamIdError ? 'error' : undefined}>
@@ -200,14 +205,14 @@ export function ModelDetail({
           </>}
         </EditorSection>}
 
-        <EditorSection level={3} title={t('dashboard.upstreamEditor.models.pricing')} description={t('dashboard.upstreamEditor.models.pricingHint')}>
+        {pricingEditorIsRelevant(row.config.kind, row.config.pricing) && <EditorSection level={3} title={t('dashboard.upstreamEditor.models.pricing')} description={t('dashboard.upstreamEditor.models.pricingHint')}>
           <PricingEditor
             readOnly={fieldsReadOnly}
             kind={row.config.kind}
             onChange={pricing => patch({ pricing })}
             value={row.config.pricing}
           />
-        </EditorSection>
+        </EditorSection>}
 
         {!fieldsReadOnly && <Button icon={<DeleteRegular />} onClick={onDelete}>
           {t('dashboard.upstreamEditor.models.delete')}
@@ -247,16 +252,6 @@ function EffortEditor({ effort, onChange, readOnly, t }: { readOnly: boolean; ef
     </Field>
   </div>;
 }
-
-const modelKindLabel = (kind: UpstreamModelConfig['kind']): string => {
-  switch (kind) {
-  case 'chat': return 'Chat';
-  case 'embedding': return 'Embedding';
-  case 'image': return 'Image';
-  case 'transcription': return 'Transcription';
-  case 'rerank': return 'Rerank';
-  }
-};
 
 const optionalNumber = (raw: string): number | undefined => raw === '' ? undefined : Number.isFinite(Number(raw)) && Number(raw) >= 0 ? Number(raw) : undefined;
 const cleanObject = <T extends object>(value: T) => Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as T;

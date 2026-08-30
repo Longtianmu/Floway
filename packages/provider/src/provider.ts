@@ -10,6 +10,7 @@ import type { OpenAIChatCompletionsPayload, OpenAIChatCompletionsStreamEvent } f
 import type { OpenAICompletionsPayload } from '@floway-dev/protocols/openai-completions';
 import type { OpenAIEmbeddingsPayload } from '@floway-dev/protocols/openai-embeddings';
 import type { OpenAIImagesGenerationsPayload } from '@floway-dev/protocols/openai-images';
+import type { OpenAIModerationsPayload } from '@floway-dev/protocols/openai-moderations';
 import type { CanonicalOpenAIResponsesPayload, OpenAIResponsesCompactionResult, OpenAIResponsesStreamEvent } from '@floway-dev/protocols/openai-responses';
 import type { CanonicalRerankRequest } from '@floway-dev/protocols/rerank';
 
@@ -150,6 +151,7 @@ export interface ProviderInstance {
   // Response verbatim.
   callAnthropicMessagesCountTokens(model: ProviderModel, body: Omit<AnthropicMessagesPayload, 'model'>, signal: AbortSignal | undefined, opts: AnthropicMessagesUpstreamCallOptions): Promise<ProviderCallResult>;
   callOpenAIEmbeddings(model: ProviderModel, body: Omit<OpenAIEmbeddingsPayload, 'model'>, signal: AbortSignal | undefined, opts: UpstreamCallOptions): Promise<ProviderCallResult>;
+  callOpenAIModerations(model: ProviderModel, body: Omit<OpenAIModerationsPayload, 'model'>, signal: AbortSignal | undefined, opts: UpstreamCallOptions): Promise<ProviderCallResult>;
   callOpenAIImagesGenerations(model: ProviderModel, body: Omit<OpenAIImagesGenerationsPayload, 'model'>, signal: AbortSignal | undefined, opts: UpstreamCallOptions): Promise<ProviderCallResult>;
   callOpenAIImagesEdits(model: ProviderModel, request: OpenAIImagesEditsRequest, signal: AbortSignal | undefined, opts: UpstreamCallOptions): Promise<ProviderCallResult>;
   callOpenAIAudioTranscriptions(model: ProviderModel, request: OpenAIAudioTranscriptionRequest, signal: AbortSignal | undefined, opts: UpstreamCallOptions): Promise<ProviderCallResult>;

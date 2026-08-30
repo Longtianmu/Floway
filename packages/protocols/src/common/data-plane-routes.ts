@@ -18,6 +18,7 @@ export const PUBLIC_DATA_PLANE_ROUTES = {
   geminiModels: { method: 'GET', paths: ['/v1beta/models'] },
   geminiModel: { method: 'GET', paths: ['/v1beta/models/:modelId{.+}'] },
   openaiEmbeddings: { method: 'POST', paths: ['/v1/embeddings', '/embeddings'] },
+  openaiModerations: { method: 'POST', paths: ['/v1/moderations', '/moderations'] },
   openaiCompletions: { method: 'POST', paths: ['/v1/completions', '/completions'] },
   openaiImagesGenerations: { method: 'POST', paths: ['/v1/images/generations', '/images/generations'] },
   openaiImagesEdits: { method: 'POST', paths: ['/v1/images/edits', '/images/edits'] },

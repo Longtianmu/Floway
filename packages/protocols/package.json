@@ -11,6 +11,7 @@
     "./anthropic-messages": { "import": "./src/anthropic-messages/index.ts", "types": "./src/anthropic-messages/index.ts" },
     "./gemini-generate-content": { "import": "./src/gemini-generate-content/index.ts", "types": "./src/gemini-generate-content/index.ts" },
     "./openai-embeddings": { "import": "./src/openai-embeddings/index.ts", "types": "./src/openai-embeddings/index.ts" },
+    "./openai-moderations": { "import": "./src/openai-moderations/index.ts", "types": "./src/openai-moderations/index.ts" },
     "./openai-images": { "import": "./src/openai-images/index.ts", "types": "./src/openai-images/index.ts" },
     "./openai-audio": { "import": "./src/openai-audio/index.ts", "types": "./src/openai-audio/index.ts" },
     "./rerank": { "import": "./src/rerank/index.ts", "types": "./src/rerank/index.ts" }
