@@ -24,8 +24,9 @@ export function CodexAccountCard({ record }: { record: CodexRecord }) {
   const lookup = findCredential(record);
   const credential = lookup.kind === 'present' ? lookup.credential : null;
   const [invalidatedAccountId, setInvalidatedAccountId] = useState<string | null>(null);
-  const entries = quotaEntries(invalidatedAccountId === account.chatgptAccountId ? null : record.codex_quota, now);
-  const credits = latestCredits(record.codex_quota);
+  const visibleQuota = invalidatedAccountId === account.chatgptAccountId ? null : record.codex_quota;
+  const entries = quotaEntries(visibleQuota, now);
+  const credits = latestCredits(visibleQuota);
   const status = accountStatus(lookup, entries);
 
   const statusLabel = status.reason === 'heavy'

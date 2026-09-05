@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { CodexAccountCard } from '../../../src/components/upstream-editor/codex-account-card';
 import { CodexResetCards } from '../../../src/components/upstream-editor/codex-reset-cards';
 import type { CodexRecord } from '../../../src/components/upstreams/codex-account';
 import { upstreamRecord } from '../../api/upstream-fixture';
@@ -27,10 +28,12 @@ const record = upstreamRecord('up_codex', {
 
 let consumeBodies: Array<{ idempotency_key: string }>;
 let consumeAttempts: number;
+let failFirstConsume: boolean;
 
 beforeEach(() => {
   consumeAttempts = 0;
   consumeBodies = [];
+  failFirstConsume = true;
   vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000001');
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = new URL(String(input), 'http://localhost').pathname;
@@ -40,7 +43,7 @@ beforeEach(() => {
     if (path === '/api/upstreams/codex/reset-credits/consume') {
       consumeAttempts += 1;
       consumeBodies.push(JSON.parse(String(init?.body)) as { idempotency_key: string });
-      if (consumeAttempts === 1) return Response.json({ error: 'temporary failure' }, { status: 502 });
+      if (failFirstConsume && consumeAttempts === 1) return Response.json({ error: 'temporary failure' }, { status: 502 });
       return Response.json({
         outcome: { code: 'reset' },
         reset_credits: null,
@@ -79,5 +82,29 @@ describe('Codex reset cards', () => {
     expect(await screen.findByText('The Codex rate-limit windows were reset.')).toBeTruthy();
     expect(screen.queryByText('Full reset')).toBeNull();
     expect(screen.getByText(/list refresh failed/)).toBeTruthy();
+  });
+
+  it('removes both the quota windows and account credit summary after a reset', async () => {
+    failFirstConsume = false;
+    const accountRecord: CodexRecord = {
+      ...record,
+      codex_quota: {
+        codex: {
+          observed_at: '2026-06-17T00:00:00Z',
+          primary_used_percent: 100,
+          credits_has_credits: true,
+          credits_balance: 1,
+        },
+      },
+    };
+    renderInApp(<CodexAccountCard record={accountRecord} />);
+
+    expect(screen.getByText('credits: 1')).toBeTruthy();
+    fireEvent.click(await screen.findByRole('button', { name: 'Use reset card' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Use reset card' }));
+
+    await waitFor(() => expect(screen.queryByText('credits: 1')).toBeNull());
+    expect(screen.getByText('No quota snapshots yet - Codex calls populate them.')).toBeTruthy();
   });
 });
