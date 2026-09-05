@@ -1,3 +1,6 @@
+import { useState } from 'react';
+
+import { CodexResetCards } from './codex-reset-cards';
 import { fluentComponents } from '../../fluent';
 import { useTranslation } from '../../i18n/translation';
 import { dateTime } from '../../lib/format-time';
@@ -20,7 +23,8 @@ export function CodexAccountCard({ record }: { record: CodexRecord }) {
   const account = record.config.accounts[0];
   const lookup = findCredential(record);
   const credential = lookup.kind === 'present' ? lookup.credential : null;
-  const entries = quotaEntries(record.codex_quota, now);
+  const [invalidatedAccountId, setInvalidatedAccountId] = useState<string | null>(null);
+  const entries = quotaEntries(invalidatedAccountId === account.chatgptAccountId ? null : record.codex_quota, now);
   const credits = latestCredits(record.codex_quota);
   const status = accountStatus(lookup, entries);
 
@@ -90,5 +94,7 @@ export function CodexAccountCard({ record }: { record: CodexRecord }) {
     {credential?.state_updated_at && <Text size={200} className="text-fui-fg3 border-0 border-t border-solid border-fui-divider pt-3">
       {t('dashboard.upstreamEditor.codex.stateUpdated', { time: dateTime(credential.state_updated_at, locale) })}
     </Text>}
+
+    <CodexResetCards record={record} onQuotaReset={() => setInvalidatedAccountId(account.chatgptAccountId)} />
   </section>;
 }
