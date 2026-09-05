@@ -167,6 +167,9 @@ export const synthesizeCatalogEntry = (
     service_tiers: deriveServiceTiers(model),
     context_window: contextWindow,
     max_context_window: maxContextWindow,
+    // Codex uses this catalog bit to choose the Responses wire profile. It
+    // must follow the routed model, never the similarly-named client bundle.
+    use_responses_lite: model.endpoints.openaiResponses?.transport === 'lite',
   };
 
   // Ultra is a client-local v2 orchestration mode whose wire effort remains

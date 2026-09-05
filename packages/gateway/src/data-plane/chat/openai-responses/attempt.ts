@@ -18,9 +18,9 @@ import { chatTargetPicker } from '../shared/target-picker.ts';
 import { traverseTranslation } from '../shared/translate-traverse.ts';
 import { runInterceptors } from '@floway-dev/interceptor';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
-import { collectOpenAIResponsesProtocolEventsToResult, type CanonicalOpenAIResponsesPayload, type OpenAIResponsesStreamEvent } from '@floway-dev/protocols/openai-responses';
+import { collectOpenAIResponsesProtocolEventsToResult, convertOpenAIResponsesTransport, OpenAIResponsesLiteInputError, OPENAI_RESPONSES_LITE_HEADER, openAIResponsesTransportForEndpoint, openAIResponsesTransportForRequest, type CanonicalOpenAIResponsesPayload, type OpenAIResponsesStreamEvent } from '@floway-dev/protocols/openai-responses';
 import { type ModelCandidate, eventResult, readUpstreamApiError, providerModelOf, type ChatTargetApi, type ExecuteResult, type ProviderOpenAIResponsesResult, type OpenAIResponsesAction } from '@floway-dev/provider';
-import { translateOpenAIResponsesViaOpenAIChatCompletions, translateOpenAIResponsesViaAnthropicMessages } from '@floway-dev/translate';
+import { translateOpenAIResponsesViaOpenAIChatCompletions, translateOpenAIResponsesViaAnthropicMessages, TranslatorInputError } from '@floway-dev/translate';
 
 // `/v1/responses` generate prefers the native OpenAI Responses target, then the
 // translated Anthropic Messages path, then the translated OpenAI Chat Completions path. The
@@ -45,6 +45,19 @@ export type OpenAIResponsesAttemptInvokeArgs = OpenAIResponsesAttemptBaseArgs & 
   readonly sourceState?: OpenAIResponsesSourceState;
 };
 type OpenAIResponsesAttemptGenerateArgs = Omit<OpenAIResponsesAttemptInvokeArgs, 'action'>;
+
+const convertTransportOrInputError = (
+  ...args: Parameters<typeof convertOpenAIResponsesTransport>
+): CanonicalOpenAIResponsesPayload => {
+  try {
+    return convertOpenAIResponsesTransport(...args);
+  } catch (error) {
+    if (error instanceof OpenAIResponsesLiteInputError) {
+      throw new TranslatorInputError(error.message, { param: error.param, code: 'invalid_value' });
+    }
+    throw error;
+  }
+};
 
 // Single entry point for both `action: 'generate'` and `action: 'compact'`.
 // Envelope-drain branches on the caller's intent (`action` passed by value),
@@ -85,7 +98,15 @@ export const openaiResponsesAttempt = {
     const { action, ctx, candidate, headers: sourceHeaders } = args;
     const headers = new Headers(sourceHeaders);
     const targetApi = openaiResponsesTarget.pick(candidate.model.endpoints);
-    const payload = { ...klona(args.payload), model: candidate.model.id };
+    const sourceTransport = openAIResponsesTransportForRequest(args.payload, headers);
+    headers.delete(OPENAI_RESPONSES_LITE_HEADER);
+    const payload = {
+      // Interceptors operate on the canonical standard shape. In particular,
+      // the server-tool shim must see top-level hosted tools before the final
+      // target edge moves the remaining client tools into additional_tools.
+      ...convertTransportOrInputError(klona(args.payload), sourceTransport, 'standard'),
+      model: candidate.model.id,
+    };
     ctx.store.beginAttempt(args.sourceState?.privatePayloads ?? new Map());
     // Copilot compaction and Azure-native compaction both emit assistant
     // messages whose content blocks have `type: 'input_text'`, then refuse
@@ -142,6 +163,18 @@ const dispatchOpenAIResponses = async (
   switch (targetApi) {
   case 'openaiResponses': {
     if (candidate.rules !== undefined) applyRulesToUpstreamOpenAIResponses(invocation.payload, candidate.rules);
+    const identity = invocation.payload.client_metadata?.thread_id
+      ?? invocation.payload.client_metadata?.session_id
+      ?? invocation.headers.get('thread-id')
+      ?? invocation.headers.get('session-id')
+      ?? invocation.headers.get('session_id')
+      ?? undefined;
+    const targetPayload = convertTransportOrInputError(
+      invocation.payload,
+      'standard',
+      openAIResponsesTransportForEndpoint(candidate.model.endpoints.openaiResponses),
+      { identity },
+    );
     // Compact drops `stream` and `store` before hitting the wire: `store` is a
     // gateway-only snapshot-persistence hint the upstream compact endpoint
     // rejects, and `stream` is irrelevant on a non-streaming call. The generate
@@ -149,10 +182,10 @@ const dispatchOpenAIResponses = async (
     // forces stream=true anyway.
     let body: Omit<CanonicalOpenAIResponsesPayload, 'model'>;
     if (invocation.action === 'compact') {
-      const { model: _model, stream: _stream, store: _store, ...rest } = invocation.payload;
+      const { model: _model, stream: _stream, store: _store, ...rest } = targetPayload;
       body = rest;
     } else {
-      const { model: _model, ...rest } = invocation.payload;
+      const { model: _model, ...rest } = targetPayload;
       body = rest;
     }
     const providerResult = await candidate.provider.instance.callOpenAIResponses(
@@ -160,7 +193,14 @@ const dispatchOpenAIResponses = async (
       body,
       invocation.action,
       ctx.abortSignal,
-      buildUpstreamCallOptions(candidate, ctx, invocation.headers),
+      buildUpstreamCallOptions(
+        candidate,
+        ctx,
+        invocation.headers,
+        openAIResponsesTransportForEndpoint(candidate.model.endpoints.openaiResponses) === 'lite'
+          ? { [OPENAI_RESPONSES_LITE_HEADER]: 'true' }
+          : undefined,
+      ),
     );
     return await providerOpenAIResponsesResultToExecuteResult(providerResult, candidate, targetApi, ctx);
   }

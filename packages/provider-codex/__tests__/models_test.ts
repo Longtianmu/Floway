@@ -13,14 +13,14 @@ describe('fetchCodexCatalog', () => {
   test('calls /codex/models with auth + identity headers, returns parsed catalog from {models: [...]}', async () => {
     const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(okJson({
       models: [
-        { slug: 'gpt-5.4', display_name: 'GPT-5.4', visibility: 'list', context_window: 272000, max_context_window: 1000000 },
+        { slug: 'gpt-5.4', display_name: 'GPT-5.4', visibility: 'list', context_window: 272000, max_context_window: 1000000, use_responses_lite: true },
         { slug: 'gpt-5.4-mini', display_name: 'GPT-5.4-Mini', visibility: 'list', context_window: 272000, max_context_window: 272000 },
         { slug: 'codex-auto-review', display_name: 'Codex Auto Review', visibility: 'hide', context_window: 272000, max_context_window: 1000000 },
       ],
     }));
     const catalog = await fetchCodexCatalog({ accessToken: 'at', accountId: 'acc', fetcher: directFetcher });
     expect(catalog).toHaveLength(3);
-    expect(catalog[0]).toEqual({ id: 'gpt-5.4', display_name: 'GPT-5.4', context_window: 272000 });
+    expect(catalog[0]).toEqual({ id: 'gpt-5.4', display_name: 'GPT-5.4', context_window: 272000, use_responses_lite: true });
     expect(catalog[2]).toEqual({ id: 'codex-auto-review', display_name: 'Codex Auto Review', context_window: 272000 });
     expect(spy).toHaveBeenCalledTimes(1);
     const [url, init] = spy.mock.calls[0];
@@ -110,6 +110,13 @@ describe('fetchCodexCatalog', () => {
     }));
     await expect(fetchCodexCatalog({ accessToken: 'at', accountId: 'acc', fetcher: directFetcher })).rejects.toThrow(/reasoning level entry malformed/);
   });
+
+  test('throws on malformed use_responses_lite', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(okJson({
+      models: [{ slug: 'gpt-x', display_name: 'GPT-X', context_window: 1, use_responses_lite: 'yes' }],
+    }));
+    await expect(fetchCodexCatalog({ accessToken: 'at', accountId: 'acc', fetcher: directFetcher })).rejects.toThrow(/use_responses_lite malformed/);
+  });
 });
 
 describe('codexRawToProviderModel', () => {
@@ -126,6 +133,11 @@ describe('codexRawToProviderModel', () => {
     expect(m.kind).toBe('chat');
     expect(m.limits.max_context_window_tokens).toBe(272000);
     expect(m.owned_by).toBe('openai');
+  });
+
+  test('projects upstream Responses Lite capability into endpoint transport', () => {
+    const m = codexRawToProviderModel({ id: 'gpt-5.6', display_name: 'GPT-5.6', context_window: 272000, use_responses_lite: true }, noFlags);
+    expect(m.endpoints).toEqual({ openaiResponses: { transport: 'lite' } });
   });
 
   test('attaches OpenAI-API-rate pricing for known slugs and treats codex-auto-review as gpt-5.4', () => {

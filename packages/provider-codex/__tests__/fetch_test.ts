@@ -4,7 +4,7 @@ import { createUpstreamStateRepoStub } from './upstream-state-repo.ts';
 import { CODEX_ORIGINATOR, CODEX_USER_AGENT } from '../src/constants.ts';
 import { callCodexAlphaSearch, callCodexOpenAIImagesGenerations, callCodexOpenAIResponses, callCodexOpenAIResponsesCompact, type CodexCallEffects } from '../src/fetch.ts';
 import type { CodexAccessTokenEntry, CodexAccountCredential, CodexQuotaSnapshotEntryMap, CodexUpstreamState } from '../src/state.ts';
-import type { OpenAIResponsesResult } from '@floway-dev/protocols/openai-responses';
+import { OPENAI_RESPONSES_LITE_HEADER, type OpenAIResponsesResult } from '@floway-dev/protocols/openai-responses';
 import { initProviderRepo, type UpstreamRecord } from '@floway-dev/provider';
 import { noopUpstreamCallOptions, readJsonRequest, stubProviderModel } from '@floway-dev/test-utils';
 
@@ -218,6 +218,19 @@ describe('callCodexOpenAIResponses — upstream classification', () => {
     expect(body.stream).toBe(true);
   });
 
+  test('forwards the protocol-owned Responses Lite header', async () => {
+    seedFreshAccessToken();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(sseResponse());
+    await callCodexOpenAIResponses({
+      upstreamId, account: activeAccount, model,
+      body: { input: [], stream: true },
+      headers: new Headers({ [OPENAI_RESPONSES_LITE_HEADER]: 'true' }),
+      effects: makeEffects(), call: noopUpstreamCallOptions(),
+    });
+    const headers = new Headers((fetchSpy.mock.calls[0][1] as RequestInit).headers);
+    expect(headers.get(OPENAI_RESPONSES_LITE_HEADER)).toBe('true');
+  });
+
   test('builds Codex responses headers and metadata from a clean set', async () => {
     seedFreshAccessToken();
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(sseResponse());
@@ -396,6 +409,31 @@ describe('callCodexOpenAIResponses — upstream classification', () => {
     expect(injectedBody.prompt_cache_key).toBe('cache-session');
     expect(preservedStringBody.prompt_cache_key).toBe('caller-cache-key');
     expect(preservedNullBody).toHaveProperty('prompt_cache_key', null);
+  });
+
+  test('requests encrypted reasoning by default for Responses Lite and preserves an explicit include list', async () => {
+    seedFreshAccessToken();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => sseResponse());
+    const headers = new Headers({
+      'session-id': 'lite-session',
+      [OPENAI_RESPONSES_LITE_HEADER]: 'true',
+    });
+
+    await callCodexOpenAIResponses({
+      upstreamId, account: activeAccount, model,
+      body: { input: [], stream: true }, headers,
+      effects: makeEffects(), call: noopUpstreamCallOptions(),
+    });
+    await callCodexOpenAIResponses({
+      upstreamId, account: activeAccount, model,
+      body: { input: [], stream: true, include: ['custom.state'] }, headers,
+      effects: makeEffects(), call: noopUpstreamCallOptions(),
+    });
+
+    const defaulted = await readJsonRequest(fetchSpy.mock.calls[0][1] as RequestInit) as Record<string, unknown>;
+    const explicit = await readJsonRequest(fetchSpy.mock.calls[1][1] as RequestInit) as Record<string, unknown>;
+    expect(defaulted.include).toEqual(['reasoning.encrypted_content']);
+    expect(explicit.include).toEqual(['custom.state']);
   });
 
   test('preserves a hyphenated Codex session id for prompt cache', async () => {

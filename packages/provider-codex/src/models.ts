@@ -20,6 +20,7 @@ export interface CodexRawModel {
   input_modalities?: readonly ('text' | 'image')[];
   reasoning_efforts?: readonly string[];
   default_reasoning_effort?: string;
+  use_responses_lite?: boolean;
 }
 
 // `fetcher` is required so the catalog refresh traverses the same proxy/
@@ -92,6 +93,13 @@ const assertRawModel = (value: unknown): CodexRawModel => {
     raw.default_reasoning_effort = value.default_reasoning_level;
   }
 
+  if (value.use_responses_lite !== undefined) {
+    if (typeof value.use_responses_lite !== 'boolean') {
+      throw new TypeError(`Codex model entry ${slug} use_responses_lite malformed`);
+    }
+    raw.use_responses_lite = value.use_responses_lite;
+  }
+
   return raw;
 };
 
@@ -130,7 +138,7 @@ export const codexRawToProviderModel = (raw: CodexRawModel, enabledFlags: Readon
     limits: {
       max_context_window_tokens: raw.context_window,
     },
-    endpoints: { openaiResponses: {} },
+    endpoints: { openaiResponses: raw.use_responses_lite ? { transport: 'lite' } : {} },
     enabledFlags,
     ...(pricing ? { pricing } : {}),
     ...(Object.keys(chat).length > 0 ? { chat } : {}),

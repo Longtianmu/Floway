@@ -6,6 +6,7 @@ import type {
   OpenAIResponsesPromptCacheRetention,
   OpenAIResponsesResult,
 } from './index.ts';
+import type { OpenAIResponsesTransport } from '../common/index.ts';
 
 // Narrower payload for `/responses/compact`. The official endpoint accepts a
 // strict subset of `/responses` fields — model/input/instructions/
@@ -41,7 +42,10 @@ export type CanonicalOpenAIResponsesCompactPayload = Omit<OpenAIResponsesCompact
 // (tools/temperature/reasoning/...) cannot leak them onto the compact wire.
 // `model` and `store` are caller-supplied at the dispatch site (model is
 // the resolved upstream id; store is gateway-only).
-export const toCompactPayloadShape = (payload: Omit<CanonicalOpenAIResponsesPayload, 'model'>): Omit<CanonicalOpenAIResponsesCompactPayload, 'model' | 'store'> => ({
+export const toCompactPayloadShape = (
+  payload: Omit<CanonicalOpenAIResponsesPayload, 'model'>,
+  transport: OpenAIResponsesTransport = 'standard',
+): Omit<CanonicalOpenAIResponsesCompactPayload, 'model' | 'store'> & Pick<CanonicalOpenAIResponsesPayload, 'reasoning' | 'parallel_tool_calls' | 'text'> => ({
   input: payload.input,
   ...(payload.instructions !== undefined && { instructions: payload.instructions }),
   ...(payload.previous_response_id !== undefined && { previous_response_id: payload.previous_response_id }),
@@ -49,6 +53,11 @@ export const toCompactPayloadShape = (payload: Omit<CanonicalOpenAIResponsesPayl
   ...(payload.prompt_cache_options !== undefined && { prompt_cache_options: payload.prompt_cache_options }),
   ...(payload.prompt_cache_retention !== undefined && { prompt_cache_retention: payload.prompt_cache_retention }),
   ...(payload.service_tier !== undefined && { service_tier: payload.service_tier }),
+  // Codex's Lite compact wire deliberately carries these create-only fields.
+  // https://github.com/openai/codex/blob/315195492c80fdade38e917c18f9584efd599304/codex-rs/core/src/client.rs
+  ...(transport === 'lite' && payload.reasoning !== undefined && { reasoning: payload.reasoning }),
+  ...(transport === 'lite' && payload.parallel_tool_calls !== undefined && { parallel_tool_calls: payload.parallel_tool_calls }),
+  ...(transport === 'lite' && payload.text !== undefined && { text: payload.text }),
 });
 
 // The `/responses/compact` wire body: `CompactResource` states none of the

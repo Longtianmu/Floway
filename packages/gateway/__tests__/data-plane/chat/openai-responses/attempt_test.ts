@@ -1,4 +1,4 @@
-import { test, vi } from 'vitest';
+import { expect, test, vi } from 'vitest';
 
 import { TEST_OPENAI_RESPONSES_RETENTION_SECONDS, testOpenAIResponsesStatePolicy } from './test-policy.ts';
 import { analyzeOpenAIResponsesAffinity } from '../../../../src/data-plane/chat/openai-responses/affinity/ingress.ts';
@@ -14,9 +14,9 @@ import { mockChatGatewayCtx } from '../../../test-utils/gateway-ctx.ts';
 import { acceptedAffinityEvaluation } from '../shared/affinity/helpers.ts';
 import { initExternalResourceFetcher } from '@floway-dev/platform';
 import type { AnthropicMessagesPayload, AnthropicMessagesStreamEvent } from '@floway-dev/protocols/anthropic-messages';
-import { doneFrame, eventFrame, type ProtocolFrame } from '@floway-dev/protocols/common';
+import { doneFrame, eventFrame, type ModelEndpoints, type ProtocolFrame } from '@floway-dev/protocols/common';
 import type { OpenAIChatCompletionsPayload, OpenAIChatCompletionsStreamEvent } from '@floway-dev/protocols/openai-chat-completions';
-import type { CanonicalOpenAIResponsesPayload, OpenAIResponsesPayload, OpenAIResponsesResult, OpenAIResponsesStreamEvent } from '@floway-dev/protocols/openai-responses';
+import { OPENAI_RESPONSES_LITE_HEADER, toLiteOpenAIResponsesPayload, type CanonicalOpenAIResponsesPayload, type OpenAIResponsesPayload, type OpenAIResponsesResult, type OpenAIResponsesStreamEvent } from '@floway-dev/protocols/openai-responses';
 import { type AnthropicMessagesUpstreamCallOptions, type ModelCandidate, directFetcher, type ProviderModel, type ProviderOpenAIResponsesResult, type ProviderStreamResult, type OpenAIResponsesAction, type UpstreamCallOptions, type FlagId } from '@floway-dev/provider';
 import { assert, assertEquals, stubProvider, stubInternalModel, stubProviderModel } from '@floway-dev/test-utils';
 
@@ -56,6 +56,7 @@ const makeProviderEvents = async function* (events: readonly OpenAIResponsesStre
 const makeCandidate = (
   callOpenAIResponses: (model: ProviderModel, body: Omit<CanonicalOpenAIResponsesPayload, 'model'>, action: OpenAIResponsesAction, signal: AbortSignal | undefined, opts: UpstreamCallOptions) => Promise<ProviderOpenAIResponsesResult>,
   enabledFlags: ReadonlySet<FlagId> = new Set<FlagId>(),
+  endpoints: ModelEndpoints = { openaiResponses: {} },
 ): ModelCandidate => {
   const provider = stubProvider({ callOpenAIResponses });
   const upstream = 'up_test';
@@ -71,11 +72,113 @@ const makeCandidate = (
       instance: provider,
     },
     model: stubInternalModel({
-      providerModels: { [upstream]: stubProviderModel({ enabledFlags }) },
+      endpoints,
+      providerModels: { [upstream]: stubProviderModel({ enabledFlags, endpoints }) },
     }, upstream),
     fetcher: directFetcher,
   };
 };
+
+test('standard source is converted to Responses Lite for a Lite target', async () => {
+  installRepo();
+  const callOpenAIResponses = vi.fn(async (_model, body, _action, _signal, opts): Promise<ProviderOpenAIResponsesResult> => {
+    assertEquals(opts.headers.get(OPENAI_RESPONSES_LITE_HEADER), 'true');
+    assertEquals(body.instructions, undefined);
+    assertEquals(body.tools, undefined);
+    assertEquals(body.parallel_tool_calls, false);
+    assertEquals(body.reasoning?.context, 'all_turns');
+    assertEquals(body.input[0]?.type, 'additional_tools');
+    return { action: 'generate', ok: true, events: makeProviderEvents([]), modelKey: 'test-model-key' };
+  });
+  await openaiResponsesAttempt.generate({
+    payload: makePayload({
+      instructions: 'Be concise.',
+      tools: [{ type: 'function', name: 'lookup', parameters: { type: 'object' } }],
+    }),
+    ctx: makeGatewayCtx(),
+    candidate: makeCandidate(callOpenAIResponses, new Set(), { openaiResponses: { transport: 'lite' } }),
+    headers: new Headers(),
+  });
+  assertEquals(callOpenAIResponses.mock.calls.length, 1);
+});
+
+test('Responses Lite conversion runs after the server-tool shim', async () => {
+  installRepo();
+  let capturedTools: unknown;
+  const completed = makeOpenAIResponsesResult();
+  const callOpenAIResponses = vi.fn(async (_model, body): Promise<ProviderOpenAIResponsesResult> => {
+    const prefix = body.input[0];
+    assert(prefix?.type === 'additional_tools');
+    capturedTools = prefix.tools;
+    return {
+      action: 'generate', ok: true,
+      events: makeProviderEvents([
+        { type: 'response.created', response: completed },
+        { type: 'response.completed', response: completed },
+      ]),
+      modelKey: 'test-model-key',
+    };
+  });
+  const result = await openaiResponsesAttempt.generate({
+    payload: makePayload({ tools: [{ type: 'web_search' }] }),
+    ctx: makeGatewayCtx(),
+    candidate: makeCandidate(
+      callOpenAIResponses,
+      new Set(['openai-responses-web-search-shim']),
+      { openaiResponses: { transport: 'lite' } },
+    ),
+    headers: new Headers(),
+  });
+  assertEquals(result.type, 'events');
+  if (result.type === 'events') await collectEvents(result.events);
+  expect(capturedTools).toEqual([{
+    type: 'namespace',
+    name: 'functions',
+    description: '',
+    tools: [{
+      type: 'function',
+      name: 'web_search',
+      description: expect.any(String),
+      parameters: expect.any(Object),
+      strict: false,
+    }],
+  }]);
+});
+
+test('Responses Lite rejects a hosted tool when no client-executed shim owns it', async () => {
+  installRepo();
+  const callOpenAIResponses = vi.fn();
+  await expect(openaiResponsesAttempt.generate({
+    payload: makePayload({ tools: [{ type: 'web_search' }] }),
+    ctx: makeGatewayCtx(),
+    candidate: makeCandidate(callOpenAIResponses, new Set(), { openaiResponses: { transport: 'lite' } }),
+    headers: new Headers(),
+  })).rejects.toMatchObject({
+    name: 'TranslatorInputError',
+    param: 'tools[0].type',
+    code: 'invalid_value',
+  });
+  assertEquals(callOpenAIResponses.mock.calls.length, 0);
+});
+
+test('Responses Lite source is converted to standard for a standard target', async () => {
+  installRepo();
+  const source = makePayload({ instructions: 'Be concise.', tools: [{ type: 'function', name: 'lookup', parameters: { type: 'object' } }] });
+  const callOpenAIResponses = vi.fn(async (_model, body, _action, _signal, opts): Promise<ProviderOpenAIResponsesResult> => {
+    assertEquals(opts.headers.get(OPENAI_RESPONSES_LITE_HEADER), null);
+    assertEquals(body.instructions, 'Be concise.');
+    assertEquals(body.tools, source.tools);
+    assertEquals(body.input, source.input);
+    return { action: 'generate', ok: true, events: makeProviderEvents([]), modelKey: 'test-model-key' };
+  });
+  await openaiResponsesAttempt.generate({
+    payload: toLiteOpenAIResponsesPayload(source),
+    ctx: makeGatewayCtx(),
+    candidate: makeCandidate(callOpenAIResponses),
+    headers: new Headers({ [OPENAI_RESPONSES_LITE_HEADER]: 'true' }),
+  });
+  assertEquals(callOpenAIResponses.mock.calls.length, 1);
+});
 
 const collectEvents = async (events: AsyncIterable<ProtocolFrame<OpenAIResponsesStreamEvent>>): Promise<OpenAIResponsesStreamEvent[]> => {
   const out: OpenAIResponsesStreamEvent[] = [];

@@ -31,6 +31,9 @@ export interface OpenAIResponsesPayload {
   tools?: OpenAIResponsesTool[] | null;
   tool_choice?: OpenAIResponsesToolChoice | null;
   metadata?: Record<string, unknown> | null;
+  // Codex WebSocket mode carries per-message transport headers here because
+  // a single connection may switch between standard Responses and Lite.
+  client_metadata?: Record<string, string> | null;
   stream?: boolean | null;
   store?: boolean | null;
   parallel_tool_calls?: boolean | null;
@@ -125,6 +128,7 @@ export interface OpenAIResponsesInputMessage {
   role: 'user' | 'assistant' | 'system' | 'developer';
   content: string | OpenAIResponsesInputContent[];
   phase?: OpenAIResponsesMessagePhase;
+  internal_chat_message_metadata_passthrough?: Record<string, unknown>;
 }
 
 // The OpenAI Responses request schema's EasyInputMessage makes the constant
@@ -1414,3 +1418,16 @@ export { OPENAI_RESPONSES_MISSING_TERMINAL_MESSAGE, collectOpenAIResponsesProtoc
 export { createRandomOpenAIResponsesItemId, type GeneratedOpenAIResponsesItemType } from './item-id.ts';
 export { reassembleOpenAIResponsesEvents } from './reassemble.ts';
 export { openaiResponsesProtocolFrameToSSEFrame } from './to-sse.ts';
+export {
+  convertOpenAIResponsesTransport,
+  OpenAIResponsesLiteInputError,
+  OPENAI_RESPONSES_LITE_BASE_INSTRUCTIONS_KIND,
+  OPENAI_RESPONSES_LITE_HEADER,
+  OPENAI_RESPONSES_LITE_REMOTE_IMAGE_MESSAGE,
+  OPENAI_RESPONSES_LITE_WS_METADATA_KEY,
+  type OpenAIResponsesLiteConversionOptions,
+  openAIResponsesTransportForEndpoint,
+  openAIResponsesTransportForRequest,
+  toLiteOpenAIResponsesPayload,
+  toStandardOpenAIResponsesPayload,
+} from './responses-lite.ts';

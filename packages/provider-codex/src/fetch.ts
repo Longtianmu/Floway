@@ -21,7 +21,7 @@ import type { CodexAccessTokenEntry, CodexAccountCredential } from './state.ts';
 import { isEventStreamMediaType } from '@floway-dev/protocols/common';
 import type { OpenAIImagesGenerationsPayload } from '@floway-dev/protocols/openai-images';
 import type { CanonicalOpenAIResponsesCompactPayload, CanonicalOpenAIResponsesPayload, OpenAIResponsesCompactionResult, OpenAIResponsesInputItem, OpenAIResponsesStreamEvent } from '@floway-dev/protocols/openai-responses';
-import { parseOpenAIResponsesStream } from '@floway-dev/protocols/openai-responses';
+import { OPENAI_RESPONSES_LITE_HEADER, parseOpenAIResponsesStream } from '@floway-dev/protocols/openai-responses';
 import { jsonRequestBody, serializeOpenAIImagesEditsJsonPayload, type OpenAIImagesEditsRequest, type ProviderCallResult, type ProviderModel, type ProviderStreamResult, streamingProviderCall, type UpstreamCallOptions } from '@floway-dev/provider';
 
 export type ProviderCompactionResult =
@@ -389,6 +389,13 @@ const buildCodexOpenAIResponsesBody = (
     },
   };
   if (body.prompt_cache_key === undefined) body.prompt_cache_key = identity.threadId;
+  // Codex always asks the Responses backend to return its opaque reasoning
+  // state so the next turn can replay it. Preserve an explicit caller list,
+  // but provide the native default for gateway-generated Lite requests.
+  // https://github.com/openai/codex/blob/84c989acf9af93f35c2f3c36b297cd4dc0f830b3/codex-rs/core/src/client.rs#L879-L909
+  if (opts.headers.get(OPENAI_RESPONSES_LITE_HEADER) === 'true' && body.include === undefined) {
+    body.include = ['reasoning.encrypted_content'];
+  }
   return body;
 };
 
@@ -421,6 +428,9 @@ const dispatchCodexHttpCall = async (
   headers.set('x-client-request-id', identity.clientRequestId);
   headers.set('x-codex-window-id', identity.windowId);
   if (turnMetadataJson !== null) headers.set('x-codex-turn-metadata', turnMetadataJson);
+  if (opts.headers.get(OPENAI_RESPONSES_LITE_HEADER) === 'true') {
+    headers.set(OPENAI_RESPONSES_LITE_HEADER, 'true');
+  }
 
   const response = await opts.call.wrapUpstreamCall(() => opts.call.fetcher(`${CODEX_BACKEND_BASE}${path}`, {
     method: 'POST',

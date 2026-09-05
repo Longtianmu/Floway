@@ -50,7 +50,7 @@ const disabledPublicModelIdsSchema = z.array(z.string()).transform(normalizeDisa
 const modelEndpointsSchema = z.object({
   openaiCompletions: z.object({}).optional(),
   openaiChatCompletions: z.object({}).optional(),
-  openaiResponses: z.object({}).optional(),
+  openaiResponses: z.object({ transport: z.enum(['standard', 'lite']).optional() }).strict().optional(),
   anthropicMessages: z.object({}).optional(),
   openaiEmbeddings: z.object({}).optional(),
   openaiImagesGenerations: z.object({}).optional(),
