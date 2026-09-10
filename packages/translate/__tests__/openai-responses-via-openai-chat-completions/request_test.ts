@@ -1,6 +1,7 @@
 import { test } from 'vitest';
 
 import { buildTargetRequest } from '../../src/openai-responses-via-openai-chat-completions/request.ts';
+import { TranslatorInputError } from '../../src/translator-input-error.ts';
 import type { OpenAIResponsesInputMultiAgentCallOutputItem, OpenAIResponsesTool, OpenAIResponsesToolChoice } from '@floway-dev/protocols/openai-responses';
 import { assertEquals, assertThrows } from '@floway-dev/test-utils';
 
@@ -944,4 +945,39 @@ test('buildTargetRequest drops reasoning.summary (OpenAI Chat Completions has no
 
   assertEquals(result.target.reasoning_effort, 'medium');
   assertEquals('reasoning_summary' in result.target, false);
+});
+
+test('namespace function aliases stay distinct from ordinary and custom tools within the Chat name limit', () => {
+  const namespace = 'n'.repeat(63);
+  const reserved = `${namespace}_`;
+  const custom = `${'n'.repeat(62)}_2`;
+  const firstAlias = `${'n'.repeat(62)}_3`;
+  const secondAlias = `${'n'.repeat(62)}_4`;
+  const result = buildTargetRequest({
+    model: 'gpt-test',
+    tools: [
+      { type: 'namespace', name: namespace, tools: [{ type: 'function', name: 'first' }, { type: 'function', name: 'second' }] },
+      { type: 'function', name: reserved },
+      { type: 'custom', name: custom },
+    ],
+    tool_choice: { type: 'function', name: `${namespace}.second` },
+    input: [{ type: 'function_call', namespace, name: 'first', call_id: 'call_long', arguments: '{}', status: 'completed' }],
+  });
+
+  assertEquals(result.target.tools?.map(tool => tool.function.name), [firstAlias, secondAlias, reserved, custom]);
+  assertEquals(result.target.tool_choice, { type: 'function', function: { name: secondAlias } });
+  assertEquals(result.target.messages[0].tool_calls?.[0].function.name, firstAlias);
+  assertEquals(result.namespaceToolNames.targetToSource, new Map([
+    [firstAlias, { namespace, name: 'first' }],
+    [secondAlias, { namespace, name: 'second' }],
+  ]));
+  assertEquals(result.customToolNames, new Set([custom]));
+});
+
+test.each([
+  { type: 'namespace', name: 'research' },
+  { type: 'namespace', name: 'research', tools: [{ type: 'custom', name: 'freeform' }] },
+  { type: 'namespace', name: 'research', tools: [{ type: 'function', name: 'lookup', parameters: [] }] },
+])('buildTargetRequest rejects an unrepresentable namespace instead of silently removing it (%j)', tool => {
+  assertThrows(() => buildTargetRequest({ model: 'gpt-test', input: 'hi', tools: [tool] }), TranslatorInputError);
 });
