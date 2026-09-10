@@ -157,6 +157,48 @@ test.each([
   }
 });
 
+test.each([
+  { tool: 'web_search', flag: 'openai-responses-web-search-shim' },
+  { tool: 'image_generation', flag: 'openai-responses-image-generation-shim' },
+] as const)('Responses Lite shims a later $tool declaration without moving history', async ({ tool, flag }) => {
+  installRepo();
+  const source = toLiteOpenAIResponsesPayload(makePayload({ tools: [] }));
+  source.input.push(
+    { type: 'additional_tools', role: 'developer', id: 'at_later', tools: [
+      { type: 'namespace', name: 'client', tools: [{ type: 'function', name: tool, parameters: { type: 'object' } }] },
+      { type: tool },
+    ] },
+    { type: 'configuration_update', reasoning: { effort: 'high' } },
+    { type: 'message', role: 'user', content: 'Use the new tool.' },
+  );
+  let captured: CanonicalOpenAIResponsesPayload['input'] | undefined;
+  const completed = makeOpenAIResponsesResult();
+  const callOpenAIResponses = vi.fn(async (_model, body): Promise<ProviderOpenAIResponsesResult> => {
+    captured = body.input;
+    return { action: 'generate', ok: true, events: makeProviderEvents([
+      { type: 'response.created', response: completed },
+      { type: 'response.completed', response: completed },
+    ]), modelKey: 'test-model-key' };
+  });
+  const result = await openaiResponsesAttempt.generate({
+    payload: source,
+    ctx: makeGatewayCtx(),
+    candidate: makeCandidate(callOpenAIResponses, new Set([flag]), { openaiResponses: { transport: 'lite' } }),
+    headers: new Headers({ [OPENAI_RESPONSES_LITE_HEADER]: 'true' }),
+  });
+  assertEquals(result.type, 'events');
+  if (result.type === 'events') await collectEvents(result.events);
+  assert(captured !== undefined);
+  assertEquals(captured.slice(0, -3), source.input.slice(0, -3));
+  assertEquals(captured.slice(-2), source.input.slice(-2));
+  const later = captured.at(-3);
+  const original = source.input.at(-3);
+  assert(later?.type === 'additional_tools' && original?.type === 'additional_tools');
+  assertEquals(later.tools[0], original.tools[0]);
+  expect(later.tools[1]).toMatchObject({ type: 'function', name: `${tool}_2` });
+  expect(later.id).not.toEqual(original.id);
+});
+
 test('Responses Lite preserves hosted tools for the upstream when no shim owns them', async () => {
   installRepo();
   const callOpenAIResponses = vi.fn(async (_model, body): Promise<ProviderOpenAIResponsesResult> => {

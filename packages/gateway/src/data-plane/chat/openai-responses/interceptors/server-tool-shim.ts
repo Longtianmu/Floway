@@ -4,12 +4,11 @@ import type { OpenAIResponsesInterceptor, OpenAIResponsesInvocation } from './ty
 import { truncatePreservingCodePoints } from '../../../shared/text.ts';
 import type { ChatGatewayCtx } from '../../shared/gateway-ctx.ts';
 import type { OpenAIResponsesStatefulStore } from '../items/store.ts';
+import { declaredOpenAIResponsesTools, mapOpenAIResponsesToolDeclarations } from '../items/tool-declarations.ts';
 import type { InterceptorRun } from '@floway-dev/interceptor';
 import { eventFrame, sumBillableUsage, type ProtocolFrame } from '@floway-dev/protocols/common';
 import {
   createRandomOpenAIResponsesItemId,
-  replaceOpenAIResponsesAdditionalTools,
-  type CanonicalOpenAIResponsesPayload,
   type OpenAIResponsesFunctionTool,
   type OpenAIResponsesHostedTool,
   type OpenAIResponsesInputItem,
@@ -991,14 +990,17 @@ export const withOpenAIResponsesServerToolShim = (
     if (prepared.type === 'invalid-request') {
       return invalidRequestEnvelope(prepared.message, prepared.param, prepared.code, prepared.errorType);
     }
-    const currentTools = initialOpenAIResponsesTools(ctx.payload);
+    const currentTools = declaredOpenAIResponsesTools(ctx.payload);
     const toolName = resolveServerToolName(prepared.baseToolName, currentTools);
     const { hosted } = prepared;
     let canonicalHostedTool: OpenAIResponsesHostedTool | undefined = undefined;
     if (hosted !== undefined) {
-      const rewrite = rewriteToolsForHostedShim(currentTools, hosted, toolName);
-      canonicalHostedTool = rewrite.canonicalHostedTool;
-      ctx.payload = replaceInitialOpenAIResponsesTools(ctx.payload, rewrite.rewritten);
+      ctx.payload = mapOpenAIResponsesToolDeclarations(ctx.payload, tools => {
+        if (!tools.some(tool => hosted.canonicalize(tool) !== undefined)) return tools;
+        const rewrite = rewriteToolsForHostedShim(tools, hosted, toolName);
+        canonicalHostedTool = rewrite.canonicalHostedTool;
+        return rewrite.rewritten;
+      });
     }
     const originalToolChoice = hosted !== undefined
       && typeof ctx.payload.tool_choice === 'object'
@@ -1072,25 +1074,4 @@ export const withOpenAIResponsesServerToolShim = (
     }),
     finalMetadata: shimFinalMetadata,
   };
-};
-
-// Lite carries the initial tool declaration in its leading input item. Keep
-// that declaration in place, so the shim neither creates a forbidden top-level
-// tools field nor moves later additional_tools updates out of history.
-// https://github.com/openai/codex/blob/315195492c80fdade38e917c18f9584efd599304/codex-rs/core/src/client.rs#L802-L820
-export const initialOpenAIResponsesTools = (payload: CanonicalOpenAIResponsesPayload): OpenAIResponsesTool[] => {
-  if (Array.isArray(payload.tools)) return payload.tools;
-  const first = payload.input[0];
-  return first?.type === 'additional_tools' && first.role === 'developer' ? first.tools : [];
-};
-
-const replaceInitialOpenAIResponsesTools = (
-  payload: CanonicalOpenAIResponsesPayload,
-  tools: OpenAIResponsesTool[],
-): CanonicalOpenAIResponsesPayload => {
-  const first = payload.input[0];
-  if (!Array.isArray(payload.tools) && first?.type === 'additional_tools' && first.role === 'developer') {
-    return { ...payload, input: [replaceOpenAIResponsesAdditionalTools(first, tools), ...payload.input.slice(1)] };
-  }
-  return { ...payload, tools };
 };
