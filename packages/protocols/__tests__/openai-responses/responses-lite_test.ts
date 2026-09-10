@@ -2,14 +2,15 @@ import { describe, expect, test } from 'vitest';
 
 import {
   OPENAI_RESPONSES_LITE_HEADER,
-  OPENAI_RESPONSES_LITE_REMOTE_IMAGE_MESSAGE,
   OPENAI_RESPONSES_LITE_WS_METADATA_KEY,
   OpenAIResponsesLiteInputError,
   convertOpenAIResponsesTransport,
   openAIResponsesTransportForRequest,
+  replaceOpenAIResponsesAdditionalTools,
   toLiteOpenAIResponsesPayload,
   toStandardOpenAIResponsesPayload,
   type CanonicalOpenAIResponsesPayload,
+  type OpenAIResponsesInputAdditionalToolsItem,
 } from '../../src/openai-responses/index.ts';
 
 const standard = (): CanonicalOpenAIResponsesPayload => ({
@@ -58,7 +59,7 @@ describe('Responses Lite transport', () => {
     }, headers)).toBe('standard');
   });
 
-  test('prepares inline images and replaces unsupported remote images', () => {
+  test('strips Lite image detail without changing images or positional metadata', () => {
     const converted = toLiteOpenAIResponsesPayload({
       ...standard(),
       input: [{
@@ -79,14 +80,14 @@ describe('Responses Lite transport', () => {
       content: [
         { type: 'input_text', text: 'Describe both images.' },
         { type: 'input_image', image_url: 'data:image/png;base64,AQID' },
-        { type: 'input_text', text: OPENAI_RESPONSES_LITE_REMOTE_IMAGE_MESSAGE },
+        { type: 'input_image', image_url: 'https://example.com/image.png' },
       ],
       internal_chat_message_metadata_passthrough: {
-        content_item_kinds: ['unknown', 'custom.inline_image', 'images.preparation_error'],
+        content_item_kinds: [null, 'custom.inline_image', 'user.image'],
       },
     });
     expect(JSON.stringify(message)).not.toContain('detail');
-    expect(JSON.stringify(message)).not.toContain('example.com');
+    expect(JSON.stringify(message)).toContain('example.com');
   });
 
   test('preserves tool capabilities without a transport-owned allowlist', () => {
@@ -154,5 +155,35 @@ describe('Responses Lite transport', () => {
   test('reports invalid client transport markers as input errors', () => {
     expect(() => openAIResponsesTransportForRequest(standard(), new Headers({ [OPENAI_RESPONSES_LITE_HEADER]: 'invalid' })))
       .toThrow(OpenAIResponsesLiteInputError);
+  });
+
+  test('preserves remote images in both function and custom tool outputs', () => {
+    const image = { type: 'input_image' as const, image_url: 'https://example.com/tool.png', detail: 'original' as const };
+    const input: CanonicalOpenAIResponsesPayload['input'] = [
+      { type: 'function_call_output', call_id: 'call_fn', output: [image] },
+      { type: 'custom_tool_call_output', call_id: 'call_custom', output: [image] },
+    ];
+    const lite = toLiteOpenAIResponsesPayload({ model: 'gpt-test', input });
+    expect(lite.input.slice(1)).toEqual(input.map(item => ({
+      ...item, output: [{ type: 'input_image', image_url: image.image_url }],
+    })));
+    expect(convertOpenAIResponsesTransport({ model: 'gpt-test', input }, 'lite', 'lite').input).toEqual(input);
+    expect(image.detail).toBe('original');
+  });
+
+  test('updates shimmed tool-prefix identity without rebuilding other fields', () => {
+    const prefix = {
+      type: 'additional_tools', role: 'developer', id: 'at_client',
+      tools: [{ type: 'web_search' }],
+      internal_chat_message_metadata_passthrough: { trace: 'client' },
+    } satisfies OpenAIResponsesInputAdditionalToolsItem & { internal_chat_message_metadata_passthrough: unknown };
+    const tools = [{ type: 'function' as const, name: 'search' }];
+    expect(replaceOpenAIResponsesAdditionalTools(prefix, [...prefix.tools])).toBe(prefix);
+    const rewritten = replaceOpenAIResponsesAdditionalTools(prefix, tools);
+    expect(rewritten.id).not.toBe(prefix.id);
+    expect(rewritten).toEqual({ ...prefix, id: rewritten.id, tools });
+    expect(rewritten).toEqual(replaceOpenAIResponsesAdditionalTools(prefix, tools));
+    expect(replaceOpenAIResponsesAdditionalTools({ type: 'additional_tools', role: 'developer', tools: [] }, tools))
+      .toEqual({ type: 'additional_tools', role: 'developer', tools });
   });
 });

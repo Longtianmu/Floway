@@ -100,7 +100,8 @@ describe('playground wire requests', () => {
       options: { reasoning: { effort: 'high' } },
       signal: new AbortController().signal,
       fetchImpl: createWireFetch({
-        tools: [{ type: 'function', name: 'lookup', parameters: { type: 'object' } }],
+        tools: [{ type: 'function', name: 'lookup', parameters: { type: 'object' }, async: true }],
+        tool_choice: { type: 'function', name: 'lookup' },
       }, 'openaiResponsesLite'),
     }));
     expect(new Headers(captured?.headers).get('x-openai-internal-codex-responses-lite')).toBe('true');
@@ -108,13 +109,11 @@ describe('playground wire requests', () => {
     expect(body.instructions).toBeUndefined();
     expect(body.parallel_tool_calls).toBe(false);
     expect(body.reasoning).toEqual({ effort: 'high', context: 'all_turns' });
+    expect(body.tool_choice).toEqual({ type: 'function', name: 'lookup' });
     expect(body.input).toEqual(expect.arrayContaining([
       expect.objectContaining({
         type: 'additional_tools', role: 'developer', id: expect.stringMatching(/^at_/),
-        tools: [{
-          type: 'namespace', name: 'functions', description: '',
-          tools: [expect.objectContaining({ type: 'function', name: 'lookup' })],
-        }],
+        tools: [{ type: 'function', name: 'lookup', parameters: { type: 'object' }, async: true }],
       }),
       expect.objectContaining({ type: 'message', role: 'developer', id: expect.stringMatching(/^msg_/) }),
       expect.objectContaining({ type: 'message', role: 'user' }),
@@ -132,13 +131,12 @@ describe('playground wire requests', () => {
       messages: [{ id: '1', role: 'user', text: 'describe', imageUrl: 'https://example.com/image.png' }], options: {},
       signal: new AbortController().signal, fetchImpl: createWireFetch({}, 'openaiResponsesLite'),
     }));
-    const body = JSON.parse(String(captured?.body)) as { input: Array<{ role?: string; content?: unknown; internal_chat_message_metadata_passthrough?: { content_item_kinds?: string[] } }> };
+    const body = JSON.parse(String(captured?.body)) as { input: Array<{ role?: string; content?: unknown }> };
     const user = body.input.find(item => item.role === 'user');
     expect(user?.content).toEqual([
       { type: 'input_text', text: 'describe' },
-      { type: 'input_text', text: 'image content omitted because remote image URLs are not supported' },
+      { type: 'input_image', image_url: 'https://example.com/image.png' },
     ]);
-    expect(user?.internal_chat_message_metadata_passthrough?.content_item_kinds).toEqual(['unknown', 'images.preparation_error']);
   });
 
   it('sends the API key the way each protocol authenticates', async () => {

@@ -1443,11 +1443,11 @@ export {
   OpenAIResponsesLiteInputError,
   OPENAI_RESPONSES_LITE_BASE_INSTRUCTIONS_KIND,
   OPENAI_RESPONSES_LITE_HEADER,
-  OPENAI_RESPONSES_LITE_REMOTE_IMAGE_MESSAGE,
   OPENAI_RESPONSES_LITE_WS_METADATA_KEY,
   type OpenAIResponsesLiteConversionOptions,
   openAIResponsesTransportForEndpoint,
   openAIResponsesTransportForRequest,
+  replaceOpenAIResponsesAdditionalTools,
   toLiteOpenAIResponsesPayload,
   toStandardOpenAIResponsesPayload,
 } from './responses-lite.ts';

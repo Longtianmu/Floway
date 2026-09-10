@@ -16,13 +16,6 @@ export const OPENAI_RESPONSES_LITE_WS_METADATA_KEY = 'ws_request_header_x_openai
 // https://github.com/openai/codex/commit/84c989acf9af93f35c2f3c36b297cd4dc0f830b3
 export const OPENAI_RESPONSES_LITE_BASE_INSTRUCTIONS_KIND = 'model.base_instructions';
 
-const OPENAI_RESPONSES_LITE_IMAGE_KIND = 'user.image';
-const OPENAI_RESPONSES_LITE_IMAGE_ERROR_KIND = 'images.preparation_error';
-export const OPENAI_RESPONSES_LITE_REMOTE_IMAGE_MESSAGE = 'image content omitted because remote image URLs are not supported';
-// Image preparation rewrites unsupported URLs into model-visible text and the
-// content kind metadata is positional, so replacements must update both arrays.
-// https://github.com/openai/codex/commit/479c8c8924eaafdeb56e86154cd19ff0805839e4
-
 // UUID namespace constants are defined by RFC 9562. Codex derives a
 // thread-scoped UUIDv5 namespace from NAMESPACE_OID, then derives each prefix
 // item id from its visible payload inside that namespace.
@@ -168,55 +161,39 @@ const stableItemId = (
   return `${prefix}_${uuidV5(visiblePayload, prefixNamespace)}`;
 };
 
-const contentKinds = (message: OpenAIResponsesInputMessage): Array<string | undefined> => {
-  const kinds = message.internal_chat_message_metadata_passthrough?.content_item_kinds;
-  return Array.isArray(kinds) ? kinds.map(kind => typeof kind === 'string' ? kind : undefined) : [];
+// A tool shim changes the visible payload of an existing durable prefix. Scope
+// its replacement identity to that original item so retries agree, while
+// untouched tool declarations keep the client's identity verbatim.
+export const replaceOpenAIResponsesAdditionalTools = (
+  item: OpenAIResponsesInputAdditionalToolsItem,
+  tools: OpenAIResponsesTool[],
+): OpenAIResponsesInputAdditionalToolsItem => {
+  const visiblePayload = JSON.stringify(tools);
+  if (visiblePayload === JSON.stringify(item.tools)) return item;
+  return {
+    ...item,
+    tools,
+    ...(item.id != null ? { id: stableItemId('at', item.id, visiblePayload) } : {}),
+  };
 };
 
-const prepareLiteContent = (
-  content: unknown,
-  existingKinds: readonly (string | undefined)[] = [],
-): { content: unknown; hasImage: boolean; hasImageError: boolean; kinds: string[] } => {
-  if (!Array.isArray(content)) return { content, hasImage: false, hasImageError: false, kinds: [] };
-  let hasImage = false;
-  let hasImageError = false;
-  const kinds: string[] = [];
-  const prepared = content.map((part, index) => {
-    if (!part || typeof part !== 'object' || (part as { type?: unknown }).type !== 'input_image') {
-      kinds.push(existingKinds[index] ?? 'unknown');
-      return part;
-    }
-    const image = part as Record<string, unknown>;
-    // Codex rejects HTTP(S) URLs, while other image references pass through.
-    // https://github.com/openai/codex/blob/3319d9b296bba4cad340ffa997d216d95f601992/codex-rs/core/src/image_preparation.rs#L254-L280
-    if (typeof image.image_url === 'string' && /^https?:/i.test(image.image_url)) {
-      hasImageError = true;
-      kinds.push(OPENAI_RESPONSES_LITE_IMAGE_ERROR_KIND);
-      return { type: 'input_text', text: OPENAI_RESPONSES_LITE_REMOTE_IMAGE_MESSAGE };
-    }
-    hasImage = true;
-    kinds.push(existingKinds[index] ?? OPENAI_RESPONSES_LITE_IMAGE_KIND);
-    const { detail: _detail, ...withoutDetail } = image;
-    return withoutDetail;
-  });
-  return { content: prepared, hasImage, hasImageError, kinds };
-};
+// The Lite wire omits image detail on messages and client tool outputs. Image
+// preparation in the Codex application is separate from this wire conversion;
+// preserve every reference and its positional metadata for upstream validation.
+// https://github.com/openai/codex/blob/3319d9b296bba4cad340ffa997d216d95f601992/codex-rs/core/src/client_common.rs#L67-L116
+const stripLiteImageDetails = <T extends { type: string; detail?: unknown }>(content: T[]): T[] => content.map(part => {
+  if (part.type !== 'input_image') return part;
+  const prepared = { ...part };
+  delete prepared.detail;
+  return prepared;
+});
 
 const prepareLiteInput = (input: readonly OpenAIResponsesInputItem[]): OpenAIResponsesInputItem[] => input.map(item => {
-  if (item.type === 'message') {
-    const prepared = prepareLiteContent(item.content, contentKinds(item));
-    if (!prepared.hasImage && !prepared.hasImageError) return item;
-    return {
-      ...item,
-      content: prepared.content as OpenAIResponsesInputMessage['content'],
-      internal_chat_message_metadata_passthrough: {
-        ...(item.internal_chat_message_metadata_passthrough ?? {}),
-        content_item_kinds: prepared.kinds,
-      },
-    };
+  if (item.type === 'message' && Array.isArray(item.content)) {
+    return { ...item, content: stripLiteImageDetails(item.content) };
   }
   if ((item.type === 'function_call_output' || item.type === 'custom_tool_call_output') && Array.isArray(item.output)) {
-    return { ...item, output: prepareLiteContent(item.output).content } as OpenAIResponsesInputItem;
+    return { ...item, output: stripLiteImageDetails(item.output) };
   }
   return item;
 });
