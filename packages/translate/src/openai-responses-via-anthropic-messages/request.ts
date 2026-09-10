@@ -407,9 +407,7 @@ const translateTools = (
         strict?: unknown;
       };
       if (typeof functionTool.name !== 'string'
-        || functionTool.parameters === null
-        || typeof functionTool.parameters !== 'object'
-        || Array.isArray(functionTool.parameters)) {
+        || (functionTool.parameters != null && (typeof functionTool.parameters !== 'object' || Array.isArray(functionTool.parameters)))) {
         throw new TranslatorInputError(`Cannot translate malformed function child in namespace '${tool.name}' to Anthropic Messages.`);
       }
       const sourceName = `${tool.name}.${functionTool.name}`;
@@ -419,7 +417,10 @@ const translateTools = (
       out.push({
         name: targetName,
         ...(typeof functionTool.description === 'string' ? { description: functionTool.description } : {}),
-        input_schema: functionTool.parameters as Record<string, unknown>,
+        // Namespace functions share the ordinary function's optional/nullable
+        // schema contract and Anthropic's required empty-schema default.
+        // https://github.com/openresponses/openresponses/blob/92c12d96d7b61d6d15e2214daa5e9c6000ab6e1c/public/openapi/openapi.json#L808-L847
+        input_schema: (functionTool.parameters ?? { type: 'object', properties: {} }) as Record<string, unknown>,
         ...(typeof functionTool.strict === 'boolean' ? { strict: functionTool.strict } : {}),
       });
     }

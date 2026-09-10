@@ -1,6 +1,7 @@
 import { test } from 'vitest';
 
 import { buildTargetRequest } from '../../src/openai-responses-via-anthropic-messages/request.ts';
+import { TranslatorInputError } from '../../src/translator-input-error.ts';
 import { ANTHROPIC_MESSAGES_FALLBACK_MAX_TOKENS, type AnthropicMessagesClientTool, type AnthropicMessagesToolResultBlock, type AnthropicMessagesUserContentBlock } from '@floway-dev/protocols/anthropic-messages';
 import type { OpenAIResponsesInputMultiAgentCallOutputItem, OpenAIResponsesTool } from '@floway-dev/protocols/openai-responses';
 import { assert, assertEquals, assertFalse, assertRejects } from '@floway-dev/test-utils';
@@ -687,6 +688,32 @@ test('buildTargetRequest gives a schema-less function tool the empty object sche
       cache_control: { type: 'ephemeral' },
     },
   ]);
+});
+
+test.each([undefined, null])('namespace functions with parameters %j use the same empty schema as ordinary functions', async parameters => {
+  const result = await buildTargetRequest({
+    ...minimalPayload,
+    tools: [{
+      type: 'namespace', name: 'functions', description: 'Client tools',
+      tools: [{ type: 'function', name: 'ping', ...(parameters === undefined ? {} : { parameters }) }],
+    }],
+    tool_choice: { type: 'function', name: 'functions.ping' },
+    input: [{ type: 'function_call', namespace: 'functions', name: 'ping', call_id: 'call_ping', arguments: '{}' }],
+  });
+  assertEquals(result.target.tools, [{ name: 'functions_ping', input_schema: { type: 'object', properties: {} }, cache_control: { type: 'ephemeral' } }]);
+  assertEquals(result.target.tool_choice, { type: 'tool', name: 'functions_ping' });
+  assertEquals(result.target.messages[0].content, [{ type: 'tool_use', id: 'call_ping', name: 'functions_ping', input: {}, cache_control: { type: 'ephemeral' } }]);
+  assertEquals(result.namespaceToolNames.targetToSource.get('functions_ping'), { namespace: 'functions', name: 'ping' });
+});
+
+test.each([[], 'invalid', 123])('namespace functions still reject non-object parameters %j', async parameters => {
+  await assertRejects(() => buildTargetRequest({
+    ...minimalPayload,
+    tools: [{
+      type: 'namespace', name: 'functions', description: 'Client tools',
+      tools: [{ type: 'function', name: 'ping', parameters }],
+    } as unknown as OpenAIResponsesTool],
+  }), TranslatorInputError, 'malformed function child');
 });
 
 test('namespace aliases and collision suffixes stay within the Anthropic name limit while retaining both identities', async () => {
