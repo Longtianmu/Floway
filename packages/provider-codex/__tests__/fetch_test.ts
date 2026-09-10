@@ -237,7 +237,7 @@ describe('callCodexOpenAIResponses — upstream classification', () => {
       { type: 'additional_tools', role: 'developer', id: 'at_client', tools: [{ type: 'function', name: 'lookup', async: true }] },
       { type: 'message', role: 'developer', id: 'msg_base', content: 'Base instructions.', internal_chat_message_metadata_passthrough: { content_item_kinds: ['model.base_instructions'] } },
       { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Investigate.' }, { type: 'input_image', file_id: 'file_image' }] },
-      { type: 'function_call', id: 'fc_old', call_id: 'call_old', name: 'lookup', arguments: '{}', async: true },
+      { type: 'function_call', id: 'fc_old', call_id: 'call_old', name: 'lookup', arguments: '{}', async: true, status: 'completed' },
       { type: 'configuration_update', id: 'cfg_client', reasoning: { effort: 'ultra' } },
       { type: 'function_call_output', call_id: 'call_old', output: [{ type: 'input_text', text: 'Result.' }, { type: 'input_image', image_url: 'https://example.com/result.png' }] },
       { type: 'additional_tools', role: 'developer', id: 'at_update', tools: [{ type: 'namespace', name: 'workspace', description: '', tools: [{ type: 'custom', name: 'build', async: true }] }] },
