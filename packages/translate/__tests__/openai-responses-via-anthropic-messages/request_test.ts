@@ -698,10 +698,12 @@ test('namespace aliases and collision suffixes stay within the Anthropic name li
   const secondAlias = `${firstAlias.slice(0, 126)}_2`;
   const result = await buildTargetRequest({
     model: 'claude-test',
-    tools: [{ type: 'namespace', name: namespace, description: 'Long tool names', tools: [
-      { type: 'function', name: functionName, parameters: { type: 'object' } },
-      { type: 'custom', name: customName },
-    ] }],
+    tools: [{
+      type: 'namespace', name: namespace, description: 'Long tool names', tools: [
+        { type: 'function', name: functionName, parameters: { type: 'object' } },
+        { type: 'custom', name: customName },
+      ],
+    }],
     tool_choice: { type: 'custom', name: `${namespace}.${customName}` },
     input: [
       { type: 'function_call', namespace, name: functionName, call_id: 'call_long_function', arguments: '{}' },

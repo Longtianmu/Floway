@@ -158,10 +158,12 @@ const translateOpenAIResponsesTools = (
         namespaceToolNames.sourceToTarget.set(`${tool.name}.${child.name}`, targetName);
         namespaceToolNames.targetToSource.set(targetName, { namespace: tool.name, name: child.name });
         customToolNames.add(targetName);
-        out.push({ type: 'function', function: {
-          name: targetName, parameters: buildCustomToolInputSchema(child.format), strict: false,
-          ...(child.description ? { description: child.description } : {}),
-        } });
+        out.push({
+          type: 'function', function: {
+            name: targetName, parameters: buildCustomToolInputSchema(child.format), strict: false,
+            ...(child.description ? { description: child.description } : {}),
+          },
+        });
         continue;
       }
       const fn = child as { name?: unknown; description?: unknown; parameters?: unknown; strict?: unknown };
