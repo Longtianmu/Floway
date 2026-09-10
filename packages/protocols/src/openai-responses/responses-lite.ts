@@ -115,11 +115,11 @@ export const openAIResponsesTransportForEndpoint = (
   endpoint: OpenAIResponsesEndpoint | undefined,
 ): OpenAIResponsesTransport => endpoint?.transport ?? 'standard';
 
-const transportBoolean = (value: unknown, label: string): boolean | undefined => {
+const transportBoolean = (value: unknown, param: string): boolean | undefined => {
   if (value === undefined || value === null) return undefined;
   if (value === true || value === 'true') return true;
   if (value === false || value === 'false') return false;
-  throw new TypeError(`${label} must be true or false`);
+  throw new OpenAIResponsesLiteInputError('Responses Lite transport marker must be true or false', param);
 };
 
 export const openAIResponsesTransportForRequest = (
@@ -129,7 +129,7 @@ export const openAIResponsesTransportForRequest = (
   const metadataValue = payload.client_metadata?.[OPENAI_RESPONSES_LITE_WS_METADATA_KEY];
   const enabled = transportBoolean(
     metadataValue ?? headers.get(OPENAI_RESPONSES_LITE_HEADER) ?? undefined,
-    'Responses Lite transport marker',
+    metadataValue != null ? `client_metadata.${OPENAI_RESPONSES_LITE_WS_METADATA_KEY}` : OPENAI_RESPONSES_LITE_HEADER,
   );
   return enabled ? 'lite' : 'standard';
 };
@@ -168,58 +168,6 @@ const stableItemId = (
   return `${prefix}_${uuidV5(visiblePayload, prefixNamespace)}`;
 };
 
-// Lite accepts client-executed tools and places ordinary function/custom tools
-// inside the conventional `functions` namespace.
-// https://github.com/openai/codex/blob/84c989acf9af93f35c2f3c36b297cd4dc0f830b3/codex-rs/tools/src/tool_spec.rs#L89-L133
-const liteTools = (tools: readonly OpenAIResponsesTool[]): OpenAIResponsesTool[] => {
-  const output: OpenAIResponsesTool[] = [];
-  let functionsIndex: number | undefined;
-  let functionsDescription = '';
-  const functions: Array<Extract<OpenAIResponsesTool, { type: 'function' | 'custom' }>> = [];
-
-  for (let index = 0; index < tools.length; index++) {
-    const tool = tools[index];
-    if (tool.type === 'function' || tool.type === 'custom') {
-      functionsIndex ??= output.length;
-      functions.push(tool);
-      continue;
-    }
-    if (tool.type === 'namespace') {
-      if (tool.name === 'functions') {
-        functionsIndex ??= output.length;
-        functions.push(...tool.tools);
-        if (tool.description.trim() !== '') functionsDescription = tool.description;
-      } else {
-        output.push(tool);
-      }
-      continue;
-    }
-    if (tool.type === 'tool_search' && tool.execution === 'client') {
-      output.push(tool);
-      continue;
-    }
-    throw new OpenAIResponsesLiteInputError(
-      `Responses Lite does not support server-hosted or native tool type '${tool.type}'. Use function/custom tools, namespaces, or a client-executed tool_search.`,
-      `tools[${index}].type`,
-    );
-  }
-
-  if (functionsIndex !== undefined && functions.length > 0) {
-    output.splice(functionsIndex, 0, {
-      type: 'namespace',
-      name: 'functions',
-      description: functionsDescription,
-      tools: functions,
-    });
-  }
-  return output;
-};
-
-const standardTools = (tools: readonly OpenAIResponsesTool[]): OpenAIResponsesTool[] => tools.flatMap(tool =>
-  tool.type === 'namespace' && tool.name === 'functions' && tool.description === ''
-    ? tool.tools
-    : [tool]);
-
 const contentKinds = (message: OpenAIResponsesInputMessage): Array<string | undefined> => {
   const kinds = message.internal_chat_message_metadata_passthrough?.content_item_kinds;
   return Array.isArray(kinds) ? kinds.map(kind => typeof kind === 'string' ? kind : undefined) : [];
@@ -239,7 +187,9 @@ const prepareLiteContent = (
       return part;
     }
     const image = part as Record<string, unknown>;
-    if (typeof image.image_url !== 'string' || !image.image_url.startsWith('data:')) {
+    // Codex rejects HTTP(S) URLs, while other image references pass through.
+    // https://github.com/openai/codex/blob/3319d9b296bba4cad340ffa997d216d95f601992/codex-rs/core/src/image_preparation.rs#L254-L280
+    if (typeof image.image_url === 'string' && /^https?:/i.test(image.image_url)) {
       hasImageError = true;
       kinds.push(OPENAI_RESPONSES_LITE_IMAGE_ERROR_KIND);
       return { type: 'input_text', text: OPENAI_RESPONSES_LITE_REMOTE_IMAGE_MESSAGE };
@@ -283,7 +233,9 @@ const withoutLiteMetadata = (
 const isBaseInstructionsMessage = (item: OpenAIResponsesInputItem | undefined): item is OpenAIResponsesInputMessage => {
   if (item?.type !== 'message' || item.role !== 'developer') return false;
   const kinds = item.internal_chat_message_metadata_passthrough?.content_item_kinds;
-  return Array.isArray(kinds) && kinds.includes(OPENAI_RESPONSES_LITE_BASE_INSTRUCTIONS_KIND);
+  const contentLength = typeof item.content === 'string' ? 1 : item.content.length;
+  return Array.isArray(kinds) && kinds.length === contentLength && kinds.length > 0
+    && kinds.every(kind => kind === OPENAI_RESPONSES_LITE_BASE_INSTRUCTIONS_KIND);
 };
 
 const instructionsFromMessage = (item: OpenAIResponsesInputMessage): string => {
@@ -309,7 +261,7 @@ export const toStandardOpenAIResponsesPayload = (
   let instructions: string | undefined;
   const first = input[0];
   if (first?.type === 'additional_tools' && first.role === 'developer') {
-    tools = standardTools(first.tools);
+    tools = first.tools;
     input.shift();
   }
   const nextFirst = input[0];
@@ -329,7 +281,11 @@ export const toLiteOpenAIResponsesPayload = (
   options: OpenAIResponsesLiteConversionOptions = {},
 ): CanonicalOpenAIResponsesPayload => {
   const input: OpenAIResponsesInputItem[] = [];
-  const tools = liteTools(payload.tools ?? []);
+  // Namespace wrapping is a Codex provider capability, not a Lite wire rule.
+  // Preserve tool identity for forced choices, call outputs and history replay;
+  // provider-owned interceptors decide which hosted tools require emulation.
+  // https://github.com/openai/codex/blob/3319d9b296bba4cad340ffa997d216d95f601992/codex-rs/core/src/client.rs#L802-L806
+  const tools = payload.tools ?? [];
   const identity = liteIdentity(payload, options.identity);
   const additionalTools: OpenAIResponsesInputAdditionalToolsItem = {
     type: 'additional_tools',
@@ -369,6 +325,9 @@ export const convertOpenAIResponsesTransport = (
   const normalized = { ...payload };
   delete normalized.client_metadata;
   if (metadata !== undefined) normalized.client_metadata = metadata;
+  // A native request already has its own durable prefix identities and input
+  // controls. Rebuilding it would change cache identity and chronology.
+  if (source === target) return normalized;
   const standard = source === 'lite' ? toStandardOpenAIResponsesPayload(normalized) : normalized;
   return target === 'lite' ? toLiteOpenAIResponsesPayload(standard, options) : standard;
 };
