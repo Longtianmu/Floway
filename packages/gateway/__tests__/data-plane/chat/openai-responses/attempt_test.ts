@@ -248,6 +248,7 @@ test.each(['generate', 'compact'] as const)('native Responses Lite %s keeps the 
       action: 'generate', ok: true,
       events: makeProviderEvents([
         { type: 'response.created', response: completed },
+        { type: 'response.output_item.added', output_index: 0, item: completed.output[0] },
         { type: 'response.output_item.done', output_index: 0, item: completed.output[0] },
         { type: 'response.completed', response: completed },
       ]),
