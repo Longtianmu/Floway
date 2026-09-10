@@ -35,6 +35,13 @@ export interface OpenAIResponsesPayload {
   // a single connection may switch between standard Responses and Lite.
   client_metadata?: Record<string, string> | null;
   stream?: boolean | null;
+  // Public streaming options and Codex's concurrent reasoning-summary control.
+  // https://github.com/openai/openai-node/blob/fe2d6a382623b00753f002de539f8a26c936b5be/src/resources/responses/responses.ts#L11047-L11064
+  // https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/codex-api/src/common.rs#L190-L197
+  stream_options?: {
+    include_obfuscation?: boolean;
+    reasoning_summary_delivery?: 'sequential_cutoff' | (string & {});
+  } | null;
   store?: boolean | null;
   parallel_tool_calls?: boolean | null;
   reasoning?: {

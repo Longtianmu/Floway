@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { createUpstreamStateRepoStub, type UpstreamStateRepoStub } from './upstream-state-repo.ts';
 import { createCodexProvider } from '../src/provider.ts';
 import type { CodexAccessTokenEntry, CodexUpstreamState } from '../src/state.ts';
+import { OPENAI_RESPONSES_LITE_HEADER, type CanonicalOpenAIResponsesPayload } from '@floway-dev/protocols/openai-responses';
 import { directFetcher, initProviderRepo, type UpstreamRecord } from '@floway-dev/provider';
 import { noopUpstreamCallOptions, readJsonRequest, stubProviderModel } from '@floway-dev/test-utils';
 
@@ -275,6 +276,53 @@ describe('createCodexProvider', () => {
       { type: 'message', role: 'user', content: 'hi' },
       { type: 'message', role: 'developer', content: 'inline instructions' },
     ]);
+  });
+
+  test.each(['generate', 'compact'] as const)('native Lite %s keeps instructions exclusively in input at the provider boundary', async action => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(action === 'generate'
+      ? sseResponse()
+      : new Response(JSON.stringify({ id: 'cmp_result', object: 'response.compaction', output: [] }), { headers: { 'content-type': 'application/json' } }));
+    const input: CanonicalOpenAIResponsesPayload['input'] = [
+      { type: 'additional_tools', role: 'developer', id: 'at_client', tools: [{ type: 'function', name: 'lookup', async: true }] },
+      { type: 'message', role: 'developer', id: 'msg_client', content: 'Native instructions.' },
+      { type: 'message', role: 'user', content: 'Hello.' },
+      { type: 'configuration_update', reasoning: { effort: 'ultra' } },
+    ];
+    const opts = noopUpstreamCallOptions();
+    opts.headers.set(OPENAI_RESPONSES_LITE_HEADER, 'true');
+    const result = await createCodexProvider(baseRecord).instance.callOpenAIResponses(
+      stubProviderModel({ id: 'gpt-6-astra', endpoints: { openaiResponses: { transport: 'lite' } } }),
+      { input, reasoning: { effort: 'ultra', context: 'all_turns' }, parallel_tool_calls: false },
+      action, undefined, opts,
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok && result.action === 'generate') for await (const _frame of result.events) { /* Drain the upstream stream. */ }
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`https://chatgpt.com/backend-api/codex/responses${action === 'compact' ? '/compact' : ''}`);
+    expect(new Headers(init.headers).get(OPENAI_RESPONSES_LITE_HEADER)).toBe('true');
+    const body = await readJsonRequest(init) as Record<string, unknown>;
+    expect(body.input).toEqual(input);
+    expect(body).not.toHaveProperty('instructions');
+    expect(body).not.toHaveProperty('tools');
+    expect(body.reasoning).toEqual({ effort: 'ultra', context: 'all_turns' });
+    expect(body.parallel_tool_calls).toBe(false);
+  });
+
+  test.each(['standard', 'lite'] as const)('forwards current Codex stream options on the %s wire', async transport => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(sseResponse());
+    const opts = noopUpstreamCallOptions();
+    if (transport === 'lite') opts.headers.set(OPENAI_RESPONSES_LITE_HEADER, 'true');
+    const payload = {
+      input: [], stream_options: { reasoning_summary_delivery: 'sequential_cutoff', include_obfuscation: false },
+    };
+    const result = await createCodexProvider(baseRecord).instance.callOpenAIResponses(
+      stubProviderModel({ id: 'gpt-6-astra', endpoints: { openaiResponses: { transport } } }),
+      payload, 'generate', undefined, opts,
+    );
+    if (result.ok && result.action === 'generate') for await (const _frame of result.events) { /* Drain the upstream stream. */ }
+    const body = await readJsonRequest(fetchSpy.mock.calls[0][1] as RequestInit) as Record<string, unknown>;
+    expect(body.stream_options).toEqual(payload.stream_options);
   });
 
   test('callOpenAIResponses re-reads state per request (operator re-import takes effect)', async () => {

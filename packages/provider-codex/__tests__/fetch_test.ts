@@ -4,7 +4,7 @@ import { createUpstreamStateRepoStub } from './upstream-state-repo.ts';
 import { CODEX_ORIGINATOR, CODEX_USER_AGENT } from '../src/constants.ts';
 import { callCodexAlphaSearch, callCodexOpenAIImagesGenerations, callCodexOpenAIResponses, callCodexOpenAIResponsesCompact, type CodexCallEffects } from '../src/fetch.ts';
 import type { CodexAccessTokenEntry, CodexAccountCredential, CodexQuotaSnapshotEntryMap, CodexUpstreamState } from '../src/state.ts';
-import { OPENAI_RESPONSES_LITE_HEADER, type OpenAIResponsesResult } from '@floway-dev/protocols/openai-responses';
+import { OPENAI_RESPONSES_LITE_HEADER, type CanonicalOpenAIResponsesPayload, type OpenAIResponsesResult, type OpenAIResponsesStreamEvent } from '@floway-dev/protocols/openai-responses';
 import { initProviderRepo, type UpstreamRecord } from '@floway-dev/provider';
 import { noopUpstreamCallOptions, readJsonRequest, stubProviderModel } from '@floway-dev/test-utils';
 
@@ -229,6 +229,75 @@ describe('callCodexOpenAIResponses — upstream classification', () => {
     });
     const headers = new Headers((fetchSpy.mock.calls[0][1] as RequestInit).headers);
     expect(headers.get(OPENAI_RESPONSES_LITE_HEADER)).toBe('true');
+  });
+
+  test.each([false, true])('native Lite call retains durable history and stream events with compaction=%s', async compact => {
+    seedFreshAccessToken();
+    const input: CanonicalOpenAIResponsesPayload['input'] = [
+      { type: 'additional_tools', role: 'developer', id: 'at_client', tools: [{ type: 'function', name: 'lookup', async: true }] },
+      { type: 'message', role: 'developer', id: 'msg_base', content: 'Base instructions.', internal_chat_message_metadata_passthrough: { content_item_kinds: ['model.base_instructions'] } },
+      { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Investigate.' }, { type: 'input_image', file_id: 'file_image' }] },
+      { type: 'function_call', id: 'fc_old', call_id: 'call_old', name: 'lookup', arguments: '{}', async: true },
+      { type: 'configuration_update', id: 'cfg_client', reasoning: { effort: 'ultra' } },
+      { type: 'function_call_output', call_id: 'call_old', output: [{ type: 'input_text', text: 'Result.' }, { type: 'input_image', image_url: 'https://example.com/result.png' }] },
+      { type: 'additional_tools', role: 'developer', id: 'at_update', tools: [{ type: 'namespace', name: 'workspace', description: '', tools: [{ type: 'custom', name: 'build', async: true }] }] },
+      { type: 'custom_tool_call', id: 'ctc_old', call_id: 'call_build', namespace: 'workspace', name: 'build', input: 'build', async: true },
+      { type: 'custom_tool_call_output', call_id: 'call_build', output: 'Built.' },
+      { type: 'compaction', id: 'cmp_old', encrypted_content: 'opaque-history' },
+    ];
+    if (compact) input.push({ type: 'compaction_trigger' });
+    const body = {
+      input,
+      reasoning: { effort: 'ultra', context: 'future_context' },
+      parallel_tool_calls: false,
+      include: ['reasoning.encrypted_content', 'future_include'],
+      previous_response_id: 'resp_previous',
+      text: { format: { type: 'json_object' } },
+      client_metadata: { thread_id: 'native-thread', turn_id: 'native-turn', caller_extension: 'keep' },
+      vendor_extension: { trace: ['unchanged'] },
+    } satisfies Omit<CanonicalOpenAIResponsesPayload, 'model'> & { vendor_extension: unknown };
+    const output: OpenAIResponsesResult['output'] = compact
+      ? [{ type: 'compaction', id: 'cmp_next', encrypted_content: 'opaque-next' }]
+      : [{ type: 'custom_tool_call', id: 'ctc_next', call_id: 'call_next', namespace: 'workspace', name: 'build', input: 'rebuild', async: true }];
+    const completed: OpenAIResponsesResult = {
+      id: 'resp_native', object: 'response', model: 'gpt-6-astra', status: 'completed',
+      output, error: null, incomplete_details: null,
+    };
+    const events: OpenAIResponsesStreamEvent[] = [
+      { type: 'response.created', sequence_number: 10, response: { ...completed, status: 'in_progress', output: [] } },
+      { type: 'response.output_item.added', sequence_number: 11, output_index: 0, item: output[0] },
+      { type: 'response.output_item.done', sequence_number: 12, output_index: 0, item: output[0] },
+      { type: 'response.completed', sequence_number: 13, response: completed },
+    ];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      events.map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(''),
+      { headers: { 'content-type': 'text/event-stream', 'x-request-id': 'req_native' } },
+    ));
+    const result = await callCodexOpenAIResponses({
+      upstreamId, account: activeAccount,
+      model: stubProviderModel({ id: 'gpt-6-astra', endpoints: { openaiResponses: { transport: 'lite' } } }),
+      body, headers: new Headers({ [OPENAI_RESPONSES_LITE_HEADER]: 'true' }),
+      effects: makeEffects(), call: noopUpstreamCallOptions(),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('Expected a native Lite stream');
+    const received: OpenAIResponsesStreamEvent[] = [];
+    for await (const frame of result.events) if (frame.type === 'event') received.push(frame.event);
+    expect(received).toEqual(events);
+    expect(result.headers?.get('x-request-id')).toBe('req_native');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://chatgpt.com/backend-api/codex/responses');
+    expect(new Headers(init.headers).get(OPENAI_RESPONSES_LITE_HEADER)).toBe('true');
+    const serialized = await readJsonRequest(init) as Record<string, unknown>;
+    const { client_metadata: metadata, ...requestFields } = body;
+    expect(serialized).toMatchObject(requestFields);
+    expect(serialized.client_metadata).toMatchObject(metadata);
+    expect(serialized.input).toEqual(input);
+    expect(serialized).not.toHaveProperty('tools');
+    expect(serialized).not.toHaveProperty('instructions');
+    const turn = JSON.parse(new Headers(init.headers).get('x-codex-turn-metadata')!) as { request_kind: string };
+    expect(turn.request_kind).toBe(compact ? 'compaction' : 'turn');
   });
 
   test('builds Codex responses headers and metadata from a clean set', async () => {
