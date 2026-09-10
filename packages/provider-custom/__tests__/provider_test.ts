@@ -2,11 +2,11 @@ import { test } from 'vitest';
 
 import { createCustomProvider } from '../src/provider.ts';
 import type { ModelPricing } from '@floway-dev/protocols/common';
+import { type CanonicalOpenAIResponsesPayload, OPENAI_RESPONSES_LITE_HEADER } from '@floway-dev/protocols/openai-responses';
 import { parseRerankRequest } from '@floway-dev/protocols/rerank';
 import type { UpstreamModelConfig, UpstreamRecord } from '@floway-dev/provider';
 import { directFetcher } from '@floway-dev/provider';
 import { assertEquals, assertExists, assertRejects, jsonResponse, noopAnthropicMessagesUpstreamCallOptions, noopUpstreamCallOptions, sseResponse, stubProviderModel, withMockedFetch } from '@floway-dev/test-utils';
-import { type CanonicalOpenAIResponsesPayload, OPENAI_RESPONSES_LITE_HEADER } from '@floway-dev/protocols/openai-responses';
 
 interface BuildOptions {
   ingressHeadersRules?: { key: string; value: string | null }[];
@@ -93,10 +93,10 @@ test.each(['lite', 'standard'] as const)('Custom forwards dispatched %s Response
       return request.url.endsWith('/compact')
         ? jsonResponse(compactResult)
         : sseResponse(
-          `event: response.output_item.done\ndata: ${JSON.stringify(outputEvent)}\n\nevent: response.completed\ndata: ${JSON.stringify(completedEvent)}\n\ndata: [DONE]\n\n`,
-          200,
-          { 'x-upstream-request': 'request-id' },
-        );
+            `event: response.output_item.done\ndata: ${JSON.stringify(outputEvent)}\n\nevent: response.completed\ndata: ${JSON.stringify(completedEvent)}\n\ndata: [DONE]\n\n`,
+            200,
+            { 'x-upstream-request': 'request-id' },
+          );
     },
     async () => {
       const opts = noopUpstreamCallOptions({

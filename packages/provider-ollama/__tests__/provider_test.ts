@@ -1,9 +1,9 @@
 import { test } from 'vitest';
 
 import { createOllamaProvider } from '../src/provider.ts';
+import { type CanonicalOpenAIResponsesPayload, OPENAI_RESPONSES_LITE_HEADER } from '@floway-dev/protocols/openai-responses';
 import { initProviderRepo, type UpstreamRecord } from '@floway-dev/provider';
 import { assertEquals, assertExists, jsonResponse, noopAnthropicMessagesUpstreamCallOptions, noopUpstreamCallOptions, sseResponse, stubProviderModel, testFetcher, withMockedFetch } from '@floway-dev/test-utils';
-import { type CanonicalOpenAIResponsesPayload, OPENAI_RESPONSES_LITE_HEADER } from '@floway-dev/protocols/openai-responses';
 
 // A cloud upstream writes its usage snapshot after the calls it serves, so the
 // provider needs a repo to write into wherever those calls are exercised.
@@ -117,10 +117,10 @@ test.each(['lite', 'standard'] as const)('Ollama forwards dispatched %s Response
       return request.url.endsWith('/compact')
         ? jsonResponse(compactResult)
         : sseResponse(
-          `event: response.output_item.done\ndata: ${JSON.stringify(outputEvent)}\n\nevent: response.completed\ndata: ${JSON.stringify(completedEvent)}\n\ndata: [DONE]\n\n`,
-          200,
-          { 'x-upstream-request': 'request-id' },
-        );
+            `event: response.output_item.done\ndata: ${JSON.stringify(outputEvent)}\n\nevent: response.completed\ndata: ${JSON.stringify(completedEvent)}\n\ndata: [DONE]\n\n`,
+            200,
+            { 'x-upstream-request': 'request-id' },
+          );
     },
     async () => {
       const opts = noopUpstreamCallOptions({

@@ -1,10 +1,10 @@
 import { test } from 'vitest';
 
 import { createAzureProvider } from '../src/provider.ts';
+import { type CanonicalOpenAIResponsesPayload, OPENAI_RESPONSES_LITE_HEADER } from '@floway-dev/protocols/openai-responses';
 import type { UpstreamRecord } from '@floway-dev/provider';
 import { directFetcher } from '@floway-dev/provider';
 import { assertEquals, jsonResponse, noopUpstreamCallOptions, sseResponse, stubProviderModel, withMockedFetch } from '@floway-dev/test-utils';
-import { type CanonicalOpenAIResponsesPayload, OPENAI_RESPONSES_LITE_HEADER } from '@floway-dev/protocols/openai-responses';
 
 const azureRecord = (overrides: Partial<UpstreamRecord> = {}): UpstreamRecord => {
   const config = {
@@ -100,10 +100,10 @@ test.each(['lite', 'standard'] as const)('Azure forwards dispatched %s Responses
       return request.url.endsWith('/compact')
         ? jsonResponse(compactResult)
         : sseResponse(
-          `event: response.output_item.done\ndata: ${JSON.stringify(outputEvent)}\n\nevent: response.completed\ndata: ${JSON.stringify(completedEvent)}\n\ndata: [DONE]\n\n`,
-          200,
-          { 'x-upstream-request': 'request-id' },
-        );
+            `event: response.output_item.done\ndata: ${JSON.stringify(outputEvent)}\n\nevent: response.completed\ndata: ${JSON.stringify(completedEvent)}\n\ndata: [DONE]\n\n`,
+            200,
+            { 'x-upstream-request': 'request-id' },
+          );
     },
     async () => {
       const opts = noopUpstreamCallOptions({
