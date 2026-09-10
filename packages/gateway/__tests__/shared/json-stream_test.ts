@@ -21,7 +21,7 @@ const fixtures = [
   '{"nested":[{},[],[true,false,null],{"text":"Floway"}]} \r\n\t',
 ];
 
-test.each(fixtures)('streamed JSON preserves native JSON values across every byte split: %s', async (text) => {
+test.each(fixtures)('streamed JSON preserves native JSON values across every byte split: %s', async text => {
   const bytes = new TextEncoder().encode(text);
   const expected: unknown = JSON.parse(text);
   for (let split = 0; split <= bytes.length; split++) {
@@ -55,7 +55,7 @@ test.each([
   '', ' ', '{', '[', '{"a":1', '[1,]', '{"a":1,}', '{"a":}', '01', '-01', '1.', '1e', '1e-', '-',
   'NaN', 'Infinity', 'undefined', '"\\x00"', '"\n"', '"a', '"\\u01"', '{}null', '{} {}', '1 2',
   'truex', '{}x', '\ufeff\ufeff{}', ' \ufeff{}', '[\ufeff{}]',
-])('streamed JSON rejects malformed or trailing input: %s', async (text) => {
+])('streamed JSON rejects malformed or trailing input: %s', async text => {
   const bytes = new TextEncoder().encode(text);
   const chunks = Array.from(bytes, byte => new Uint8Array([byte]));
   await expect(parseJsonStream(byteStream(chunks))).rejects.toThrow();

@@ -43,7 +43,7 @@ test('takeRequestBody transfers bytes and clears the source owner', () => {
   assertEquals(source.bytes.byteLength, 0);
 });
 
-test.each([null, 3600])('createJsonRequestBody leaves reading inside the caller error boundary (dump=%s)', async (retention) => {
+test.each([null, 3600])('createJsonRequestBody leaves reading inside the caller error boundary (dump=%s)', async retention => {
   const request = new Request('http://localhost/v1/responses', { method: 'POST', body: '{invalid' });
   const body = createJsonRequestBody(await context(request, retention));
   expect(request.bodyUsed).toBe(false);
