@@ -34,6 +34,9 @@ export interface OpenAIResponsesPayload {
   // Codex WebSocket mode carries per-message transport headers here because
   // a single connection may switch between standard Responses and Lite.
   client_metadata?: Record<string, string> | null;
+  // Codex carries provider-owned access selections on generate and compact.
+  // https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/codex-api/src/common.rs#L28-L65
+  access_programs?: Record<string, string> | null;
   stream?: boolean | null;
   // Public streaming options and Codex's concurrent reasoning-summary control.
   // https://github.com/openai/openai-node/blob/fe2d6a382623b00753f002de539f8a26c936b5be/src/resources/responses/responses.ts#L11047-L11064
@@ -240,7 +243,9 @@ export interface OpenAIResponsesFunctionToolCallItem {
   name: string;
   namespace?: string;
   arguments: string;
-  status: 'completed' | 'in_progress' | 'incomplete';
+  // Input history need not carry an output lifecycle status.
+  // https://github.com/openai/openai-node/blob/fe2d6a382623b00753f002de539f8a26c936b5be/src/resources/responses/responses.ts#L3607-L3616
+  status?: 'completed' | 'in_progress' | 'incomplete' | (string & {});
   caller?: OpenAIResponsesToolCaller | null;
   // https://github.com/openai/openai-node/blob/fe2d6a382623b00753f002de539f8a26c936b5be/src/resources/responses/responses.ts#L3597-L3600
   async?: boolean;

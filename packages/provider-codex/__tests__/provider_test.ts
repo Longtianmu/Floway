@@ -292,7 +292,7 @@ describe('createCodexProvider', () => {
     opts.headers.set(OPENAI_RESPONSES_LITE_HEADER, 'true');
     const result = await createCodexProvider(baseRecord).instance.callOpenAIResponses(
       stubProviderModel({ id: 'gpt-6-astra', endpoints: { openaiResponses: { transport: 'lite' } } }),
-      { input, reasoning: { effort: 'ultra', context: 'all_turns' }, parallel_tool_calls: false },
+      { input, reasoning: { effort: 'ultra', context: 'all_turns' }, parallel_tool_calls: false, access_programs: { cyber: 'future_program' } },
       action, undefined, opts,
     );
     expect(result.ok).toBe(true);
@@ -307,6 +307,7 @@ describe('createCodexProvider', () => {
     expect(body).not.toHaveProperty('tools');
     expect(body.reasoning).toEqual({ effort: 'ultra', context: 'all_turns' });
     expect(body.parallel_tool_calls).toBe(false);
+    expect(body.access_programs).toEqual({ cyber: 'future_program' });
   });
 
   test.each(['standard', 'lite'] as const)('forwards current Codex stream options on the %s wire', async transport => {
