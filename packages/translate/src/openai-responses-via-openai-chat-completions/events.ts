@@ -226,7 +226,8 @@ const closeFunctionCalls = (state: OpenAIChatCompletionsToOpenAIResponsesStreamS
 
     if (kind === 'custom') {
       const input = unwrapCustomToolInput(functionCall.arguments);
-      const item = openaiResponses.customToolCallItem(itemId, functionCall.callId, functionCall.name, input);
+      const sourceTool = state.namespaceTargetToSource.get(functionCall.name);
+      const item = openaiResponses.customToolCallItem(itemId, functionCall.callId, sourceTool?.name ?? functionCall.name, input, sourceTool?.namespace);
 
       state.completedItems[outputIndex] = item;
       events.push(...openaiResponses.customToolCallDone(state, outputIndex, itemId, input, item));
@@ -294,7 +295,8 @@ const startFunctionCall = (current: PendingFunctionCallItem, state: OpenAIChatCo
   if (isCustom) {
     // Wrapped custom tool calls buffer arguments fully; we cannot emit input
     // deltas until we can parse the JSON wrap and extract the freeform value.
-    return openaiResponses.itemAdded(state, outputIndex, openaiResponses.customToolCallItem(streamItem.itemId, current.callId, current.name, ''));
+    const sourceTool = state.namespaceTargetToSource.get(current.name);
+    return openaiResponses.itemAdded(state, outputIndex, openaiResponses.customToolCallItem(streamItem.itemId, current.callId, sourceTool?.name ?? current.name, '', sourceTool?.namespace));
   }
 
   const sourceTool = state.namespaceTargetToSource.get(current.name);

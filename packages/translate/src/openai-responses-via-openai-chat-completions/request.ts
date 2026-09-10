@@ -149,8 +149,20 @@ const translateOpenAIResponsesTools = (
       throw new TranslatorInputError('Cannot translate a namespace tool without a string name and tools array to OpenAI Chat Completions.');
     }
     for (const child of tool.tools) {
-      if (child === null || typeof child !== 'object' || (child as { type?: unknown }).type !== 'function') {
-        throw new TranslatorInputError(`Cannot translate non-function child in namespace '${tool.name}' to OpenAI Chat Completions.`);
+      if (child === null || typeof child !== 'object' || (child.type !== 'function' && child.type !== 'custom')) {
+        throw new TranslatorInputError(`Cannot translate unsupported child in namespace '${tool.name}' to OpenAI Chat Completions.`);
+      }
+      if (child.type === 'custom') {
+        if (typeof child.name !== 'string') throw new TranslatorInputError(`Cannot translate malformed custom child in namespace '${tool.name}' to OpenAI Chat Completions.`);
+        const targetName = namespaceTargetName(tool.name, child.name, reservedNames);
+        namespaceToolNames.sourceToTarget.set(`${tool.name}.${child.name}`, targetName);
+        namespaceToolNames.targetToSource.set(targetName, { namespace: tool.name, name: child.name });
+        customToolNames.add(targetName);
+        out.push({ type: 'function', function: {
+          name: targetName, parameters: buildCustomToolInputSchema(child.format), strict: false,
+          ...(child.description ? { description: child.description } : {}),
+        } });
+        continue;
       }
       const fn = child as { name?: unknown; description?: unknown; parameters?: unknown; strict?: unknown };
       if (typeof fn.name !== 'string'
@@ -297,7 +309,7 @@ export const buildTargetRequest = (source: OpenAIResponsesRequestPayload): Targe
       // so the translated target sees a coherent tool-call history.
       assistant = appendAssistantToolCall(assistant, {
         call_id: item.call_id,
-        name: item.name,
+        name: namespaceToolNames.sourceToTarget.get(item.namespace === undefined ? item.name : `${item.namespace}.${item.name}`) ?? item.name,
         arguments: JSON.stringify({ input: item.input }),
       });
       continue;

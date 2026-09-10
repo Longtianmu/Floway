@@ -976,7 +976,7 @@ test('namespace function aliases stay distinct from ordinary and custom tools wi
 
 test.each([
   { type: 'namespace', name: 'research' },
-  { type: 'namespace', name: 'research', tools: [{ type: 'custom', name: 'freeform' }] },
+  { type: 'namespace', name: 'research', tools: [{ type: 'web_search' }] },
   { type: 'namespace', name: 'research', tools: [{ type: 'function', name: 'lookup', parameters: [] }] },
 ])('buildTargetRequest rejects an unrepresentable namespace instead of silently removing it (%j)', tool => {
   assertThrows(() => buildTargetRequest({ model: 'gpt-test', input: 'hi', tools: [tool as OpenAIResponsesTool] }), TranslatorInputError);

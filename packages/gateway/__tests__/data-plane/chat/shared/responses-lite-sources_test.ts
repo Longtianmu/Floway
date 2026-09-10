@@ -47,23 +47,23 @@ const sourceRequest = (profile: typeof profiles[number], standard = standardPayl
   return { payload, headers };
 };
 
-const chatEvents = async function* (): AsyncGenerator<ProtocolFrame<OpenAIChatCompletionsStreamEvent>> {
+const chatEvents = async function* (toolName = targetToolName, args = '{"city":"Kaohsiung"}'): AsyncGenerator<ProtocolFrame<OpenAIChatCompletionsStreamEvent>> {
   const base = { id: 'chat_next', object: 'chat.completion.chunk' as const, created: 1, model: 'target-model' };
   yield eventFrame({ ...base, choices: [{ index: 0, delta: { role: 'assistant', content: 'Checking the next city.' }, finish_reason: null }] });
-  yield eventFrame({ ...base, choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'call_next', type: 'function', function: { name: targetToolName, arguments: '{"city":' } }] }, finish_reason: null }] });
-  yield eventFrame({ ...base, choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: '"Kaohsiung"}' } }] }, finish_reason: 'tool_calls' }] });
+  yield eventFrame({ ...base, choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'call_next', type: 'function', function: { name: toolName, arguments: args.slice(0, 8) } }] }, finish_reason: null }] });
+  yield eventFrame({ ...base, choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: args.slice(8) } }] }, finish_reason: 'tool_calls' }] });
   yield eventFrame({ ...base, choices: [], usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 } });
   yield doneFrame();
 };
 
-const anthropicEvents = async function* (): AsyncGenerator<ProtocolFrame<AnthropicMessagesStreamEvent>> {
+const anthropicEvents = async function* (toolName = targetToolName, args = '{"city":"Kaohsiung"}'): AsyncGenerator<ProtocolFrame<AnthropicMessagesStreamEvent>> {
   yield eventFrame({ type: 'message_start', message: { id: 'msg_next', type: 'message', role: 'assistant', model: 'target-model', content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 0 } } });
   yield eventFrame({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } });
   yield eventFrame({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Checking the next city.' } });
   yield eventFrame({ type: 'content_block_stop', index: 0 });
-  yield eventFrame({ type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'call_next', name: targetToolName, input: {} } });
-  yield eventFrame({ type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"city":' } });
-  yield eventFrame({ type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '"Kaohsiung"}' } });
+  yield eventFrame({ type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'call_next', name: toolName, input: {} } });
+  yield eventFrame({ type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: args.slice(0, 8) } });
+  yield eventFrame({ type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: args.slice(8) } });
   yield eventFrame({ type: 'content_block_stop', index: 1 });
   yield eventFrame({ type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 4 } });
   yield eventFrame({ type: 'message_stop' });
@@ -143,7 +143,69 @@ for (const target of targets) {
       expect(source.headers.get(OPENAI_RESPONSES_LITE_HEADER)).toBe(profile === 'lite HTTP' ? 'true' : null);
     });
 
-    for (const unsupported of ['async declaration', 'async history', 'configuration_update', 'named output without call_id'] as const) {
+    test(`${profile} Responses restores namespaced custom tool calls through ${target}`, async () => {
+      initRepo(new InMemoryRepo());
+      const alias = 'functions_apply_patch_2';
+      const input = 'PATCH new\n';
+      let chatBody: Omit<OpenAIChatCompletionsPayload, 'model'> | undefined;
+      let anthropicBody: Omit<AnthropicMessagesPayload, 'model'> | undefined;
+      let calls = 0;
+      const provider = stubProvider({
+        callOpenAIChatCompletions: (_model, body) => {
+          expect(target).toBe('openaiChatCompletions');
+          calls++;
+          chatBody = body;
+          return Promise.resolve({ ok: true, modelKey: 'target-model', events: chatEvents(alias, JSON.stringify({ input })) });
+        },
+        callAnthropicMessages: (_model, body) => {
+          expect(target).toBe('anthropicMessages');
+          calls++;
+          anthropicBody = body;
+          return Promise.resolve({ ok: true, modelKey: 'target-model', events: anthropicEvents(alias, JSON.stringify({ input })) });
+        },
+      });
+      const candidate = stubModelCandidate({ model: { endpoints: { [target]: {} } } });
+      candidate.provider.instance = provider;
+      const standard: CanonicalOpenAIResponsesPayload = {
+        model: 'target-model', instructions: 'Apply the patch.',
+        tools: [
+          { type: 'function', name: 'functions_apply_patch' },
+          { type: 'namespace', name: 'functions', description: 'Patch tools', tools: [{ type: 'custom', name: 'apply_patch', format: { type: 'grammar', syntax: 'lark', definition: 'start: "PATCH"' } }] },
+        ],
+        tool_choice: { type: 'custom', name: 'functions.apply_patch' },
+        input: [
+          { type: 'message', role: 'user', content: 'Update the patch.' },
+          { type: 'custom_tool_call', namespace: 'functions', name: 'apply_patch', call_id: 'patch_prior', input: 'PATCH old\n' },
+          { type: 'custom_tool_call_output', call_id: 'patch_prior', output: 'Patched.' },
+        ],
+      };
+      const result = await openaiResponsesAttempt.generate({ ...sourceRequest(profile, standard), candidate, ctx: mockChatGatewayCtx({ wantsStream: true }) });
+      expect(result.type).toBe('events');
+      if (result.type !== 'events') throw new Error('Expected translated custom tool stream');
+      const events: OpenAIResponsesStreamEvent[] = [];
+      for await (const frame of result.events) if (frame.type === 'event') events.push(frame.event);
+      expect(calls).toBe(1);
+      if (target === 'openaiChatCompletions') {
+        expect(chatBody?.tools?.[1]).toMatchObject({ type: 'function', function: { name: alias, parameters: { properties: { input: { type: 'string', description: 'Lark grammar: start: "PATCH"' } } } } });
+        expect(chatBody?.tool_choice).toEqual({ type: 'function', function: { name: alias } });
+        expect(chatBody?.messages).toEqual(expect.arrayContaining([
+          expect.objectContaining({ role: 'assistant', tool_calls: [{ type: 'function', id: 'patch_prior', function: { name: alias, arguments: JSON.stringify({ input: 'PATCH old\n' }) } }] }),
+          { role: 'tool', tool_call_id: 'patch_prior', content: 'Patched.' },
+        ]));
+      } else {
+        expect(anthropicBody?.tools?.[1]).toMatchObject({ name: alias, input_schema: { properties: { input: { type: 'string', description: 'Lark grammar: start: "PATCH"' } } } });
+        expect(anthropicBody?.tool_choice).toEqual({ type: 'tool', name: alias });
+        expect(anthropicBody?.messages).toEqual(expect.arrayContaining([
+          expect.objectContaining({ role: 'assistant', content: [{ type: 'tool_use', id: 'patch_prior', name: alias, input: { input: 'PATCH old\n' } }] }),
+          expect.objectContaining({ role: 'user', content: expect.arrayContaining([expect.objectContaining({ type: 'tool_result', tool_use_id: 'patch_prior', content: 'Patched.' })]) }),
+        ]));
+      }
+      expect(events).toContainEqual(expect.objectContaining({ type: 'response.output_item.added', item: expect.objectContaining({ type: 'custom_tool_call', namespace: 'functions', name: 'apply_patch', call_id: 'call_next', input: '' }) }));
+      expect(events).toContainEqual(expect.objectContaining({ type: 'response.output_item.done', item: expect.objectContaining({ type: 'custom_tool_call', namespace: 'functions', name: 'apply_patch', call_id: 'call_next', input }) }));
+      expect(events.find(event => event.type === 'response.completed')?.response.output).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'custom_tool_call', namespace: 'functions', name: 'apply_patch', call_id: 'call_next', input })]));
+    });
+
+    for (const unsupported of ['async declaration', 'async custom declaration', 'async history', 'configuration_update', 'named output without call_id'] as const) {
       test(`${profile} Responses rejects ${unsupported} before calling ${target}`, async () => {
         initRepo(new InMemoryRepo());
         let calls = 0;
@@ -155,6 +217,7 @@ for (const target of targets) {
         candidate.provider.instance = provider;
         const standard = standardPayload();
         if (unsupported === 'async declaration') standard.tools = [{ type: 'namespace', name: 'research', description: 'Research tools', tools: [{ type: 'function', name: 'lookup', parameters, async: true }] }];
+        if (unsupported === 'async custom declaration') standard.tools = [{ type: 'namespace', name: 'research', description: 'Research tools', tools: [{ type: 'custom', name: 'lookup', async: true }] }];
         if (unsupported === 'async history') standard.input.push({ type: 'function_call', call_id: 'call_pending', namespace: 'research', name: 'lookup', arguments: '{}', async: true });
         if (unsupported === 'configuration_update') standard.input.push({ type: 'configuration_update', reasoning: { effort: 'ultra' } });
         if (unsupported === 'named output without call_id') standard.input.push({ type: 'function_call_output', namespace: 'research', name: 'lookup', output: 'Finished.', internal_chat_message_metadata_passthrough: { source: 'client' } });

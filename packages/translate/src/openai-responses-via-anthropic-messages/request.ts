@@ -270,7 +270,7 @@ const translateOpenAIResponsesInput = async (
       appendAssistantBlock(messages, {
         type: 'tool_use',
         id: item.call_id,
-        name: item.name,
+        name: namespaceSourceToTarget.get(item.namespace === undefined ? item.name : `${item.namespace}.${item.name}`) ?? item.name,
         input: { input: item.input },
       });
       break;
@@ -333,7 +333,7 @@ const translateTools = (
   tools: AnthropicMessagesTool[] | undefined;
   namespaceToolNames: TargetRequestResult['namespaceToolNames'];
 } => {
-  // Anthropic Messages has no namespace container. Flatten each namespace function to
+  // Anthropic Messages has no namespace container. Flatten each namespace function/custom tool to
   // a collision-safe Anthropic Messages tool name and retain a bidirectional map so
   // request history and target events recover the source `namespace.tool`
   // identity. Other hosted/deferred OpenAI Responses tools still require their own
@@ -382,8 +382,17 @@ const translateTools = (
       throw new TranslatorInputError('Cannot translate a namespace tool without a string name and tools array to Anthropic Messages.');
     }
     for (const child of tool.tools) {
-      if (child === null || typeof child !== 'object' || (child as { type?: unknown }).type !== 'function') {
-        throw new TranslatorInputError(`Cannot translate non-function child in namespace '${tool.name}' to Anthropic Messages.`);
+      if (child === null || typeof child !== 'object' || (child.type !== 'function' && child.type !== 'custom')) {
+        throw new TranslatorInputError(`Cannot translate unsupported child in namespace '${tool.name}' to Anthropic Messages.`);
+      }
+      if (child.type === 'custom') {
+        if (typeof child.name !== 'string') throw new TranslatorInputError(`Cannot translate malformed custom child in namespace '${tool.name}' to Anthropic Messages.`);
+        const targetName = uniqueToolName(namespaceTargetName(tool.name, child.name), reservedNames);
+        namespaceToolNames.sourceToTarget.set(`${tool.name}.${child.name}`, targetName);
+        namespaceToolNames.targetToSource.set(targetName, { namespace: tool.name, name: child.name });
+        customToolNames.add(targetName);
+        out.push({ name: targetName, description: child.description, input_schema: buildCustomToolInputSchema(child.format) });
+        continue;
       }
       const functionTool = child as {
         name?: unknown;
