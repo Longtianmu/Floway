@@ -147,16 +147,18 @@ export const createCodexProvider = (record: UpstreamRecord): Provider => {
             // interceptor that flips `ctx.action` from 'generate' to 'compact'
             // mid-chain and leaves the generate-shaped body (tools, reasoning,
             // etc.) in place.
-            return { action: 'compact', ...(await callCodexOpenAIResponsesCompact({
-              ...backendCallBase,
-              body: {
-                ...toCompactPayloadShape(wireBody, ctx.headers.get(OPENAI_RESPONSES_LITE_HEADER) === 'true' ? 'lite' : 'standard'),
-                // Codex extends unary compact with the same access selection
-                // as generate; generic Responses compact remains unchanged.
-                // https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/codex-api/src/common.rs#L48-L65
-                ...(wireBody.access_programs !== undefined ? { access_programs: wireBody.access_programs } : {}),
-              },
-            })) };
+            return {
+              action: 'compact', ...(await callCodexOpenAIResponsesCompact({
+                ...backendCallBase,
+                body: {
+                  ...toCompactPayloadShape(wireBody, ctx.headers.get(OPENAI_RESPONSES_LITE_HEADER) === 'true' ? 'lite' : 'standard'),
+                  // Codex extends unary compact with the same access selection
+                  // as generate; generic Responses compact remains unchanged.
+                  // https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/codex-api/src/common.rs#L48-L65
+                  ...(wireBody.access_programs !== undefined ? { access_programs: wireBody.access_programs } : {}),
+                },
+              })),
+            };
           case 'generate':
             return { action: 'generate', ...(await callCodexOpenAIResponses({ ...backendCallBase, body: wireBody })) };
           default:
