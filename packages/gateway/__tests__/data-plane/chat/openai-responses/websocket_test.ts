@@ -249,6 +249,71 @@ test('Codex WebSocket preserves Astra Lite continuation and switches to standard
   );
 });
 
+test.each([false, true])('Codex Lite WebSocket prewarms without inference and continues its snapshot with empty=%s', async empty => {
+  const { apiKey, repo, copilotUpstream } = await setupAppTest();
+  await repo.upstreams.save({ ...copilotUpstream, enabled: false });
+  await repo.upstreams.save(buildCodexUpstreamRecord());
+  const requests: Record<string, unknown>[] = [];
+  const prefix = empty ? [] : [
+    { type: 'additional_tools', id: 'at_prewarm', role: 'developer', tools: [] },
+    { type: 'message', id: 'msg_prewarm', role: 'developer', content: 'Keep the warmed prefix.' },
+  ];
+  const followup = { type: 'message', role: 'user', content: 'Now answer.' };
+  await withMockedFetch(async request => {
+    const { pathname } = new URL(request.url);
+    if (pathname === '/backend-api/codex/models') {
+      return jsonResponse({ models: codexModels([{ slug: 'gpt-6-astra' }]).models.map(model => ({ ...model, use_responses_lite: true })) });
+    }
+    if (pathname !== '/backend-api/codex/responses') throw new Error(`Unhandled fetch ${request.url}`);
+    assertEquals(request.headers.get(OPENAI_RESPONSES_LITE_HEADER), 'true');
+    const body = JSON.parse(await request.text()) as Record<string, unknown>;
+    requests.push(body);
+    return sseOpenAIResponsesResponse({
+      id: `resp_prewarm_${requests.length}`, object: 'response', model: 'gpt-6-astra', status: 'completed',
+      output: [{ type: 'message', id: 'msg_answer', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Answer.', annotations: [] }] }],
+    });
+  }, async () => await withWorkerWebSocketRuntime(async () => {
+    const socket = await connectOpenAIResponsesWebSocket(apiKey.key);
+    const clientMetadata = { [OPENAI_RESPONSES_LITE_WS_METADATA_KEY]: 'true' };
+    const warmed = waitForMessages(socket, messages => messages.some(isTerminalResponseEvent));
+    socket.send(JSON.stringify({ type: 'response.create', model: 'gpt-6-astra', input: prefix, generate: false, store: false, client_metadata: clientMetadata }));
+    const warmEvents = await warmed;
+    const warmId = terminalResponseId(warmEvents);
+    assertEquals(requests.length, 0);
+    assertEquals(warmEvents.filter(event => event.type === 'response.output_text.delta').length, 0);
+    assertEquals(warmEvents.at(-1)?.type, 'response.completed');
+    assertEquals((warmEvents.at(-1)?.response as Record<string, unknown>).output, []);
+    await flushAsyncWork();
+    assertEquals(await repo.usage.listAll(), []);
+    assertEquals(await repo.performance.listAll(), []);
+    assertEquals(await repo.openaiResponsesSnapshots.lookup(apiKey.id, warmId, 0), null);
+
+    for (const generate of ['false', null, 0]) {
+      const rejected = waitForMessages(socket, messages => messages.some(event => event.type === 'error'));
+      socket.send(JSON.stringify({ type: 'response.create', model: 'gpt-6-astra', input: [], generate }));
+      const error = (await rejected).find(event => event.type === 'error');
+      assertEquals(error?.status, 400);
+      assertEquals((error?.error as Record<string, unknown>).param, 'generate');
+    }
+    const missing = waitForMessages(socket, messages => messages.some(event => event.type === 'error'));
+    socket.send(JSON.stringify({ type: 'response.create', model: 'gpt-6-astra', input: [], previous_response_id: 'resp_missing_prewarm', generate: false }));
+    const missingError = (await missing).find(event => event.type === 'error');
+    assertEquals(missingError?.status, 400);
+    assertEquals((missingError?.error as Record<string, unknown>).code, 'previous_response_not_found');
+    assertEquals(requests.length, 0);
+
+    const answered = waitForMessages(socket, messages => messages.some(isTerminalResponseEvent));
+    socket.send(JSON.stringify({ type: 'response.create', model: 'gpt-6-astra', input: [followup], previous_response_id: warmId, generate: true, store: false, client_metadata: clientMetadata }));
+    const answerEvents = await answered;
+    assertEquals(answerEvents.at(-1)?.type, 'response.completed');
+    assertEquals(requests.length, 1);
+    assertEquals(requests[0].generate, undefined);
+    assertEquals(requests[0].input, [...prefix, followup]);
+    assertEquals(requests[0].previous_response_id, undefined);
+    socket.close();
+  }));
+});
+
 test('OpenAI Responses WebSocket forwards stream events, echoes event_id, and ends the turn on the terminal event', async () => {
   const { apiKey } = await setupAppTest();
   await withMockedFetch(

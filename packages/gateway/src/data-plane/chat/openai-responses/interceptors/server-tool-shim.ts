@@ -9,6 +9,7 @@ import type { InterceptorRun } from '@floway-dev/interceptor';
 import { eventFrame, sumBillableUsage, type ProtocolFrame } from '@floway-dev/protocols/common';
 import {
   createRandomOpenAIResponsesItemId,
+  type CanonicalOpenAIResponsesPayload,
   type OpenAIResponsesFunctionTool,
   type OpenAIResponsesHostedTool,
   type OpenAIResponsesInputItem,

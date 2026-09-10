@@ -33,11 +33,13 @@ const translatedResource = (): OpenAIResponsesResult => ({
 
 describe('OpenAI Responses resource completion', () => {
   it('completes tools declared in Lite input while preserving upstream tool observations', () => {
-    const declared = sources({ input: [
-      { type: 'additional_tools', role: 'developer', id: 'at_initial', tools: [{ type: 'function', name: 'lookup', async: true }] },
-      { type: 'message', role: 'user', content: 'Look this up.' },
-      { type: 'additional_tools', role: 'developer', id: 'at_later', tools: [{ type: 'custom', name: 'summarize', async: true }] },
-    ] });
+    const declared = sources({
+      input: [
+        { type: 'additional_tools', role: 'developer', id: 'at_initial', tools: [{ type: 'function', name: 'lookup', async: true }] },
+        { type: 'message', role: 'user', content: 'Look this up.' },
+        { type: 'additional_tools', role: 'developer', id: 'at_later', tools: [{ type: 'custom', name: 'summarize', async: true }] },
+      ],
+    });
     assertEquals(completeResponseResource(translatedResource(), declared, true).tools, [
       { type: 'function', name: 'lookup', async: true, description: null, parameters: null, strict: null },
       { type: 'custom', name: 'summarize', async: true },

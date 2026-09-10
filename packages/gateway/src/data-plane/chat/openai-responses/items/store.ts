@@ -132,7 +132,6 @@ export class LayeredOpenAIResponsesStatefulStore implements OpenAIResponsesState
     const itemIds = mode === 'replace'
       ? [...outputItemIds]
       : [...this.previousSnapshotItemIds, ...this.stagedInputItemIds, ...outputItemIds];
-    if (itemIds.length === 0) return;
     const uniqueRows = [...new Set(itemIds)].map(id => {
       const row = this.loadedItems.get(id);
       if (row === undefined) throw new Error(`OpenAI Responses snapshot item disappeared before commit: ${id}`);
@@ -147,7 +146,7 @@ export class LayeredOpenAIResponsesStatefulStore implements OpenAIResponsesState
         if (row.refreshedAt < refreshedAt) row.refreshedAt = refreshedAt;
       }
     }
-    const snapshotRefreshedAt = Math.min(...uniqueRows.map(row => row.refreshedAt));
+    const snapshotRefreshedAt = uniqueRows.length === 0 ? refreshedAt : Math.min(...uniqueRows.map(row => row.refreshedAt));
     const snapshot: StoredOpenAIResponsesSnapshot = {
       id: responseId,
       apiKeyId: this.apiKeyId,

@@ -164,10 +164,12 @@ test.each([
   installRepo();
   const source = toLiteOpenAIResponsesPayload(makePayload({ tools: [] }));
   source.input.push(
-    { type: 'additional_tools', role: 'developer', id: 'at_later', tools: [
-      { type: 'namespace', name: 'client', tools: [{ type: 'function', name: tool, parameters: { type: 'object' } }] },
-      { type: tool },
-    ] },
+    {
+      type: 'additional_tools', role: 'developer', id: 'at_later', tools: [
+        { type: 'namespace', name: 'client', description: 'Client tools.', tools: [{ type: 'function', name: tool, parameters: { type: 'object' } }] },
+        { type: tool },
+      ],
+    },
     { type: 'configuration_update', reasoning: { effort: 'high' } },
     { type: 'message', role: 'user', content: 'Use the new tool.' },
   );
@@ -175,10 +177,12 @@ test.each([
   const completed = makeOpenAIResponsesResult();
   const callOpenAIResponses = vi.fn(async (_model, body): Promise<ProviderOpenAIResponsesResult> => {
     captured = body.input;
-    return { action: 'generate', ok: true, events: makeProviderEvents([
-      { type: 'response.created', response: completed },
-      { type: 'response.completed', response: completed },
-    ]), modelKey: 'test-model-key' };
+    return {
+      action: 'generate', ok: true, events: makeProviderEvents([
+        { type: 'response.created', response: completed },
+        { type: 'response.completed', response: completed },
+      ]), modelKey: 'test-model-key',
+    };
   });
   const result = await openaiResponsesAttempt.generate({
     payload: source,

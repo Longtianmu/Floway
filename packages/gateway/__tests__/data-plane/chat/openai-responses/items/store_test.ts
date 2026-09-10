@@ -25,6 +25,16 @@ const installRepo = (): InMemoryRepo => {
 };
 
 describe('OpenAIResponsesStatefulStore', () => {
+  test('an empty snapshot remains chainable with a finite retention timestamp', async () => {
+    installRepo();
+    vi.useFakeTimers();
+    vi.setSystemTime(TEST_DAY);
+    const writer = createOpenAIResponsesHttpStore(testOpenAIResponsesStatePolicy(), Date.now(), true);
+    await writer.commitSnapshot('resp_empty', 'append', []);
+    const reader = createOpenAIResponsesHttpStore(testOpenAIResponsesStatePolicy(), Date.now(), true);
+    expect(await reader.loadSnapshot('resp_empty')).toMatchObject({ itemIds: [], refreshedAt: quantizeOpenAIResponsesRefreshedAt(TEST_DAY) });
+  });
+
   test('HTTP store=false performs no state writes', async () => {
     const repo = installRepo();
     const store = createOpenAIResponsesHttpStore(testOpenAIResponsesStatePolicy(), Date.now(), false);

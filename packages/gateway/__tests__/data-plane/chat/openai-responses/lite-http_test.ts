@@ -17,10 +17,12 @@ test.each([false, true])('native Codex Lite HTTP retains the complete request an
   const { apiKey } = await setupCodex();
   const requests: Record<string, unknown>[] = [];
   const prefix = [
-    { type: 'additional_tools', role: 'developer', id: 'at_native', tools: [
-      { type: 'namespace', name: 'functions', tools: [{ type: 'function', name: 'lookup', async: true, parameters: { type: 'object', properties: { query: { type: 'string' } } } }] },
-      { type: 'custom', name: 'run_query', async: true, format: { type: 'text' } },
-    ], vendor_extension: { retained: true } },
+    {
+      type: 'additional_tools', role: 'developer', id: 'at_native', tools: [
+        { type: 'namespace', name: 'functions', tools: [{ type: 'function', name: 'lookup', async: true, parameters: { type: 'object', properties: { query: { type: 'string' } } } }] },
+        { type: 'custom', name: 'run_query', async: true, format: { type: 'text' } },
+      ], vendor_extension: { retained: true },
+    },
     { type: 'message', role: 'developer', id: 'msg_native', content: [{ type: 'input_text', text: 'Keep the prefix.', prompt_cache_breakpoint: { mode: 'always' } }] },
     { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Look this up.' }, { type: 'input_image', image_url: 'https://example.test/image.png', detail: 'original' }] },
     { type: 'vendor:context', id: 'vendor_context', opaque: { retained: [1, false, null] } },
