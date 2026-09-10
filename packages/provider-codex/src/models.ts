@@ -20,6 +20,8 @@ export interface CodexRawModel {
   input_modalities?: readonly ('text' | 'image')[];
   reasoning_efforts?: readonly string[];
   default_reasoning_effort?: string;
+  // Upstream selects its wire profile independently of the model slug.
+  // https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/models-manager/models.json
   use_responses_lite?: boolean;
 }
 

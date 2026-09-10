@@ -144,6 +144,39 @@ describe('createCodexProvider', () => {
     expect(account.accessToken?.token).toBe('at_minted');
   });
 
+  test('discovers Astra behind its upstream minimum client version without changing standard Responses models', async () => {
+    // The released catalog gates Astra at 0.153.0 and selects Lite with
+    // model metadata, independently of its slug and reasoning levels.
+    // https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/models-manager/models.json
+    const astra = {
+      slug: 'gpt-6-astra', display_name: 'GPT-6-Astra', context_window: 272000,
+      input_modalities: ['text', 'image'], use_responses_lite: true,
+      supported_reasoning_levels: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'].map(effort => ({ effort, description: '' })),
+      default_reasoning_level: 'medium',
+    };
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const url = new URL(String(input));
+      const version = url.searchParams.get('client_version') ?? '0.0.0';
+      const models = [
+        { slug: 'gpt-5.4', display_name: 'GPT-5.4', context_window: 272000, use_responses_lite: false },
+        ...(version.localeCompare('0.153.0', undefined, { numeric: true }) >= 0 ? [astra] : []),
+      ];
+      return new Response(JSON.stringify({ models }), { headers: { 'content-type': 'application/json' } });
+    });
+
+    const models = await createCodexProvider(baseRecord).instance.getProvidedModels(directFetcher);
+    const astraModel = models.find(model => model.id === astra.slug);
+    expect(astraModel).toMatchObject({
+      endpoints: { openaiResponses: { transport: 'lite' } },
+      limits: { max_context_window_tokens: 272000 },
+      chat: {
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        reasoning: { effort: { supported: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'], default: 'medium' } },
+      },
+    });
+    expect(models.find(model => model.id === 'gpt-5.4')?.endpoints).toEqual({ openaiResponses: {} });
+  });
+
   test('getProvidedModels propagates catalog fetch failures', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('upstream down', { status: 502 }));
     const instance = createCodexProvider(baseRecord);
