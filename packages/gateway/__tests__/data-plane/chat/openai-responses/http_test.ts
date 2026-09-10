@@ -168,6 +168,50 @@ const queueCompletedResponse = (id = 'resp_test') => {
   return callOpenAIResponses;
 };
 
+test('Stateful Responses restores all ten inline images on subsequent HTTP turns', async () => {
+  installRepo();
+  const images = Array.from({ length: 10 }, (_, index) => ({
+    type: 'input_image' as const,
+    image_url: `data:image/png;base64,${String.fromCharCode(65 + index).repeat(256 * 1024)}`,
+    detail: 'original',
+  }));
+  const input = [{ type: 'message', role: 'user', content: images }];
+  const app = makeApp();
+  const firstCall = queueCompletedResponse();
+  const first = await app.request('/v1/responses', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'test-model', input }),
+  });
+  assertEquals(first.status, 200);
+  const firstBody = await first.json() as { id: string };
+  assertEquals((firstCall.mock.calls[0] as unknown as [unknown, CanonicalOpenAIResponsesPayload])[1].input, input);
+
+  const secondCall = queueCompletedResponse('resp_second');
+  const second = await app.request('/v1/responses', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'test-model', previous_response_id: firstBody.id, input: 'Compare all ten images again.' }),
+  });
+  assertEquals(second.status, 200);
+  const secondBody = await second.json() as { id: string };
+  const restored = (secondCall.mock.calls[0] as unknown as [unknown, CanonicalOpenAIResponsesPayload])[1];
+  assertEquals(restored.input[0], input[0]);
+  assertEquals(restored.input.length, 3);
+  // Mutating a dispatched candidate must not rewrite the retained history.
+  const firstImageItem = restored.input[0] as { content: typeof images };
+  firstImageItem.content[0].image_url = 'changed';
+
+  const thirdCall = queueCompletedResponse('resp_third');
+  const third = await app.request('/v1/responses', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'test-model', previous_response_id: secondBody.id, input: 'Keep the original images.' }),
+  });
+  assertEquals(third.status, 200);
+  await third.json();
+  const next = (thirdCall.mock.calls[0] as unknown as [unknown, CanonicalOpenAIResponsesPayload])[1];
+  assertEquals(next.input[0], input[0]);
+  assertEquals(next.input.length, 5);
+});
+
 test('POST /v1/responses streams a successful SSE body', async () => {
   installRepo();
   const callOpenAIResponses = queueCompletedResponse();

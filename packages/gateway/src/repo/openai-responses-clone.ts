@@ -1,10 +1,18 @@
 import { isEqual } from 'es-toolkit';
+import { klona } from 'klona/json';
 
 import type { StoredOpenAIResponsesItem, StoredOpenAIResponsesSnapshot } from './types.ts';
 
 export const cloneStoredOpenAIResponsesItem = (item: StoredOpenAIResponsesItem): StoredOpenAIResponsesItem => ({
   ...item,
-  payload: structuredClone(item.payload),
+  payload: {
+    ...item.payload,
+    // Wire items are JSON. Copy mutable containers while sharing immutable
+    // strings, as the request-attempt clone does: structuredClone duplicates
+    // every inline image at each session/cache/hydration boundary.
+    item: klona(item.payload.item),
+    ...(Object.hasOwn(item.payload, 'private') ? { private: structuredClone(item.payload.private) } : {}),
+  },
 });
 
 export const cloneStoredOpenAIResponsesSnapshot = (snapshot: StoredOpenAIResponsesSnapshot): StoredOpenAIResponsesSnapshot => ({

@@ -1,3 +1,5 @@
+import { klona } from 'klona/json';
+
 import { type AffinityCodec, type AffinityRequestAnalysis, type DecodedAffinityBlob, defineAffinityRequest, projectOptionalAffinityBlob } from '../../shared/affinity/index.ts';
 import type { OpenAIChatCompletionsPayload } from '@floway-dev/protocols/openai-chat-completions';
 
@@ -17,7 +19,7 @@ export const analyzeOpenAIChatCompletionsAffinity = async (
       kind: 'accepted',
       degrades: projections.some(item => item.projection.kind === 'remove' && item.projection.degrades),
       materialize: () => {
-        const candidatePayload = structuredClone(payload);
+        const candidatePayload = klona(payload);
         for (const { index, projection } of projections) {
           const message = candidatePayload.messages[index];
           if (projection.kind === 'preserve') message.reasoning_opaque = projection.value;

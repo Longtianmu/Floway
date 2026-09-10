@@ -1,4 +1,4 @@
-import { test, vi } from 'vitest';
+import { expect, test, vi } from 'vitest';
 
 import { geminiGenerateContentAttempt } from '../../../../src/data-plane/chat/gemini-generate-content/attempt.ts';
 import { initRepo } from '../../../../src/repo/index.ts';
@@ -160,6 +160,38 @@ test('generate translates through OpenAI Responses when targetApi is responses',
   if (result.type !== 'events') throw new Error('unreachable');
   await collectEvents(result.events);
   assertEquals(callOpenAIResponses.mock.calls.length, 1);
+});
+
+test.each(['generate', 'countTokens'] as const)('%s preserves source image history while cleaning the attempt payload', async action => {
+  installRepo();
+  const payload = makePayload({
+    contents: [{ role: 'user', parts: [{
+      inlineData: { mimeType: 'image/png', data: 'AAAA' },
+      fileData: { mimeType: 'image/png', fileUri: 'https://example.com/image.png' },
+    }] }],
+  });
+  const original = JSON.stringify(payload);
+  let upstreamBody: Record<string, unknown> | undefined;
+  const candidate = makeCandidate({
+    endpoints: { anthropicMessages: {} },
+    callAnthropicMessages: async (_model, body) => {
+      upstreamBody = body as Record<string, unknown>;
+      return { ok: true, events: makeProtocolFrames(makeAnthropicMessagesEvents()), modelKey: 'k' };
+    },
+    callAnthropicMessagesCountTokens: async (_model, body) => {
+      upstreamBody = body as Record<string, unknown>;
+      return { response: Response.json({ input_tokens: 42 }), modelKey: 'k' };
+    },
+  });
+  const result = await geminiGenerateContentAttempt[action]({ payload, candidate, ctx: makeGatewayCtx(), headers: new Headers() });
+  if (result.type === 'events') await collectEvents(result.events);
+  else {
+    assertEquals(result.type, 'plain');
+    assertEquals(result.status, 200);
+  }
+
+  expect(upstreamBody?.messages).toMatchObject([{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } }] }]);
+  assertEquals(JSON.stringify(payload), original);
 });
 
 test('countTokens translates Gemini generateContent to Anthropic Messages count_tokens and reshapes to totalTokens envelope', async () => {

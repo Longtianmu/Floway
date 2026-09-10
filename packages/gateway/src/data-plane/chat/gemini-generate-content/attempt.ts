@@ -1,3 +1,5 @@
+import { klona } from 'klona/json';
+
 import { geminiGenerateContentStatusForHttpStatus } from './errors.ts';
 import { geminiGenerateContentCountTokensInterceptors, geminiGenerateContentInterceptors } from './interceptors/index.ts';
 import { stripUnsupportedPartFieldsFromPayload } from './interceptors/strip-unsupported-part-fields.ts';
@@ -37,7 +39,7 @@ export interface GeminiGenerateContentAttemptCountTokensArgs {
 export const geminiGenerateContentAttempt = {
   generate: async (args: GeminiGenerateContentAttemptGenerateArgs): Promise<ExecuteResult<ProtocolFrame<GeminiGenerateContentStreamEvent>>> => {
     const { payload: sourcePayload, ctx, candidate, headers: sourceHeaders } = args;
-    const payload = structuredClone(sourcePayload);
+    const payload = klona(sourcePayload);
     const headers = new Headers(sourceHeaders);
     const targetApi = geminiGenerateContentGenerateTarget.pick(candidate.model.endpoints);
     const invocation: GeminiGenerateContentInvocation = { payload, candidate, targetApi, headers };
@@ -83,7 +85,7 @@ export const geminiGenerateContentAttempt = {
 
   countTokens: async (args: GeminiGenerateContentAttemptCountTokensArgs): Promise<PlainResult> => {
     const { payload: sourcePayload, ctx, candidate, headers: sourceHeaders } = args;
-    const payload = structuredClone(sourcePayload);
+    const payload = klona(sourcePayload);
     const headers = new Headers(sourceHeaders);
     const targetApi = geminiGenerateContentCountTokensTarget.pick(candidate.model.endpoints);
     const invocation: GeminiGenerateContentInvocation = { payload, candidate, targetApi, headers };

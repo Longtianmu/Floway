@@ -3,6 +3,7 @@ import { expect, test } from 'vitest';
 import { analyzeAnthropicMessagesAffinity } from '../../../../../src/data-plane/chat/anthropic-messages/affinity/ingress.ts';
 import { AffinityCodec, type AffinityTarget } from '../../../../../src/data-plane/chat/shared/affinity/index.ts';
 import { acceptedAffinityEvaluation } from '../../shared/affinity/helpers.ts';
+import type { AnthropicMessagesPayload } from '@floway-dev/protocols/anthropic-messages';
 import type { ModelCandidate } from '@floway-dev/provider';
 import { stubModelCandidate } from '@floway-dev/test-utils';
 
@@ -20,6 +21,24 @@ const targetFor = (value: ModelCandidate): AffinityTarget => ({
   upstreamId: value.provider.upstreamId,
   modelId: value.model.id,
   ...(value.rules !== undefined ? { rules: value.rules } : {}),
+});
+
+test('keeps image history intact and nested candidate edits isolated', async () => {
+  const payload: AnthropicMessagesPayload = {
+    model: 'model',
+    max_tokens: 100,
+    messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } }] }],
+  };
+  const prepared = await analyzeAnthropicMessagesAffinity(payload, codec);
+  const projection = acceptedAffinityEvaluation(prepared, candidate('upstream-a'));
+  const first = projection.materialize();
+  expect(first).toEqual(payload);
+  const content = first.messages[0].content;
+  if (!Array.isArray(content) || content[0].type !== 'image' || content[0].source.type !== 'base64') throw new Error('Expected the original image block');
+  content[0].source.data = 'BBBB';
+
+  expect(acceptedAffinityEvaluation(prepared, candidate('upstream-b')).materialize()).toEqual(payload);
+  expect(payload.messages[0].content).toEqual([{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } }]);
 });
 
 test('removes synthetic blocks and strips incompatible signatures without hiding thinking', async () => {
