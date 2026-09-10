@@ -132,33 +132,29 @@ test('Responses Lite conversion runs after the server-tool shim', async () => {
   assertEquals(result.type, 'events');
   if (result.type === 'events') await collectEvents(result.events);
   expect(capturedTools).toEqual([{
-    type: 'namespace',
-    name: 'functions',
-    description: '',
-    tools: [{
-      type: 'function',
-      name: 'web_search',
-      description: expect.any(String),
-      parameters: expect.any(Object),
-      strict: false,
-    }],
+    type: 'function',
+    name: 'web_search',
+    description: expect.any(String),
+    parameters: expect.any(Object),
+    strict: false,
   }]);
 });
 
-test('Responses Lite rejects a hosted tool when no client-executed shim owns it', async () => {
+test('Responses Lite preserves hosted tools for the upstream when no shim owns them', async () => {
   installRepo();
-  const callOpenAIResponses = vi.fn();
-  await expect(openaiResponsesAttempt.generate({
+  const callOpenAIResponses = vi.fn(async (_model, body): Promise<ProviderOpenAIResponsesResult> => {
+    const prefix = body.input[0];
+    assert(prefix?.type === 'additional_tools');
+    assertEquals(prefix.tools, [{ type: 'web_search' }]);
+    return { action: 'generate', ok: true, events: makeProviderEvents([]), modelKey: 'test-model-key' };
+  });
+  await openaiResponsesAttempt.generate({
     payload: makePayload({ tools: [{ type: 'web_search' }] }),
     ctx: makeGatewayCtx(),
     candidate: makeCandidate(callOpenAIResponses, new Set(), { openaiResponses: { transport: 'lite' } }),
     headers: new Headers(),
-  })).rejects.toMatchObject({
-    name: 'TranslatorInputError',
-    param: 'tools[0].type',
-    code: 'invalid_value',
   });
-  assertEquals(callOpenAIResponses.mock.calls.length, 0);
+  assertEquals(callOpenAIResponses.mock.calls.length, 1);
 });
 
 test('Responses Lite source is converted to standard for a standard target', async () => {
@@ -175,6 +171,34 @@ test('Responses Lite source is converted to standard for a standard target', asy
     payload: toLiteOpenAIResponsesPayload(source),
     ctx: makeGatewayCtx(),
     candidate: makeCandidate(callOpenAIResponses),
+    headers: new Headers({ [OPENAI_RESPONSES_LITE_HEADER]: 'true' }),
+  });
+  assertEquals(callOpenAIResponses.mock.calls.length, 1);
+});
+
+test.each(['generate', 'compact'] as const)('native Responses Lite %s preserves client prefix ids and metadata', async action => {
+  installRepo();
+  const source = toLiteOpenAIResponsesPayload(makePayload({
+    instructions: 'Be concise.',
+    tools: [{ type: 'function', name: 'lookup', parameters: { type: 'object' }, async: true }],
+  }));
+  source.input[0] = { ...source.input[0], id: 'at_client_prefix', vendor_extension: 'keep-tools' };
+  source.input[1] = { ...source.input[1], id: 'msg_client_prefix', vendor_extension: 'keep-instructions' };
+  const callOpenAIResponses = vi.fn(async (_model, body, actualAction, _signal, opts): Promise<ProviderOpenAIResponsesResult> => {
+    assertEquals(actualAction, action);
+    assertEquals(opts.headers.get(OPENAI_RESPONSES_LITE_HEADER), 'true');
+    assertEquals(body.input, source.input);
+    assertEquals(body.instructions, undefined);
+    assertEquals(body.tools, undefined);
+    return action === 'compact'
+      ? { action, ok: true, result: makeOpenAIResponsesResult(), modelKey: 'test-model-key' }
+      : { action, ok: true, events: makeProviderEvents([]), modelKey: 'test-model-key' };
+  });
+  await openaiResponsesAttempt.invoke({
+    action,
+    payload: source,
+    ctx: makeGatewayCtx(),
+    candidate: makeCandidate(callOpenAIResponses, new Set(), { openaiResponses: { transport: 'lite' } }),
     headers: new Headers({ [OPENAI_RESPONSES_LITE_HEADER]: 'true' }),
   });
   assertEquals(callOpenAIResponses.mock.calls.length, 1);

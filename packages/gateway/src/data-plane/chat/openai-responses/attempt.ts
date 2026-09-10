@@ -17,7 +17,7 @@ import { providerStreamResultToExecuteResult } from '../shared/provider-stream-r
 import { chatTargetPicker } from '../shared/target-picker.ts';
 import { traverseTranslation } from '../shared/translate-traverse.ts';
 import { runInterceptors } from '@floway-dev/interceptor';
-import type { ProtocolFrame } from '@floway-dev/protocols/common';
+import type { OpenAIResponsesTransport, ProtocolFrame } from '@floway-dev/protocols/common';
 import { collectOpenAIResponsesProtocolEventsToResult, convertOpenAIResponsesTransport, OpenAIResponsesLiteInputError, OPENAI_RESPONSES_LITE_HEADER, openAIResponsesTransportForEndpoint, openAIResponsesTransportForRequest, type CanonicalOpenAIResponsesPayload, type OpenAIResponsesStreamEvent } from '@floway-dev/protocols/openai-responses';
 import { type ModelCandidate, eventResult, readUpstreamApiError, providerModelOf, type ChatTargetApi, type ExecuteResult, type ProviderOpenAIResponsesResult, type OpenAIResponsesAction } from '@floway-dev/provider';
 import { translateOpenAIResponsesViaOpenAIChatCompletions, translateOpenAIResponsesViaAnthropicMessages, TranslatorInputError } from '@floway-dev/translate';
@@ -46,14 +46,14 @@ export type OpenAIResponsesAttemptInvokeArgs = OpenAIResponsesAttemptBaseArgs & 
 };
 type OpenAIResponsesAttemptGenerateArgs = Omit<OpenAIResponsesAttemptInvokeArgs, 'action'>;
 
-const convertTransportOrInputError = (
-  ...args: Parameters<typeof convertOpenAIResponsesTransport>
-): CanonicalOpenAIResponsesPayload => {
+const withTransportInputErrors = <T>(run: () => T): T => {
   try {
-    return convertOpenAIResponsesTransport(...args);
+    return run();
   } catch (error) {
     if (error instanceof OpenAIResponsesLiteInputError) {
-      throw new TranslatorInputError(error.message, { param: error.param, code: 'invalid_value' });
+      const inputError = new TranslatorInputError(error.message, { param: error.param, code: 'invalid_value' });
+      inputError.cause = error;
+      throw inputError;
     }
     throw error;
   }
@@ -98,13 +98,18 @@ export const openaiResponsesAttempt = {
     const { action, ctx, candidate, headers: sourceHeaders } = args;
     const headers = new Headers(sourceHeaders);
     const targetApi = openaiResponsesTarget.pick(candidate.model.endpoints);
-    const sourceTransport = openAIResponsesTransportForRequest(args.payload, headers);
+    const sourceTransport = withTransportInputErrors(() => openAIResponsesTransportForRequest(args.payload, headers));
+    const chainTransport = sourceTransport === 'lite' && targetApi === 'openaiResponses'
+      && openAIResponsesTransportForEndpoint(candidate.model.endpoints.openaiResponses) === 'lite'
+      ? 'lite'
+      : 'standard';
     headers.delete(OPENAI_RESPONSES_LITE_HEADER);
     const payload = {
-      // Interceptors operate on the canonical standard shape. In particular,
-      // the server-tool shim must see top-level hosted tools before the final
-      // target edge moves the remaining client tools into additional_tools.
-      ...convertTransportOrInputError(klona(args.payload), sourceTransport, 'standard'),
+      // Standard requests retain top-level tools until after the server-tool
+      // shim. Native Lite requests keep their ordered input and client ids;
+      // round-tripping through standard would replace the prompt prefix.
+      // https://github.com/openai/codex/blob/315195492c80fdade38e917c18f9584efd599304/codex-rs/core/src/client.rs#L1113-L1153
+      ...withTransportInputErrors(() => convertOpenAIResponsesTransport(klona(args.payload), sourceTransport, chainTransport)),
       model: candidate.model.id,
     };
     ctx.store.beginAttempt(args.sourceState?.privatePayloads ?? new Map());
@@ -123,7 +128,7 @@ export const openaiResponsesAttempt = {
       headers,
     };
     const chainResult = await runInterceptors(invocation, ctx, openaiResponsesInterceptors, async () =>
-      await dispatchOpenAIResponses(invocation, ctx));
+      await dispatchOpenAIResponses(invocation, ctx, chainTransport));
 
     if (chainResult.type !== 'events') return chainResult;
 
@@ -158,6 +163,7 @@ export const openaiResponsesAttempt = {
 const dispatchOpenAIResponses = async (
   invocation: OpenAIResponsesInvocation,
   ctx: ChatGatewayCtx,
+  sourceTransport: OpenAIResponsesTransport,
 ): Promise<ExecuteResult<ProtocolFrame<OpenAIResponsesStreamEvent>>> => {
   const { candidate, targetApi } = invocation;
   switch (targetApi) {
@@ -169,12 +175,13 @@ const dispatchOpenAIResponses = async (
       ?? invocation.headers.get('session-id')
       ?? invocation.headers.get('session_id')
       ?? undefined;
-    const targetPayload = convertTransportOrInputError(
+    const targetTransport = openAIResponsesTransportForEndpoint(candidate.model.endpoints.openaiResponses);
+    const targetPayload = withTransportInputErrors(() => convertOpenAIResponsesTransport(
       invocation.payload,
-      'standard',
-      openAIResponsesTransportForEndpoint(candidate.model.endpoints.openaiResponses),
+      sourceTransport,
+      targetTransport,
       { identity },
-    );
+    ));
     // Compact drops `stream` and `store` before hitting the wire: `store` is a
     // gateway-only snapshot-persistence hint the upstream compact endpoint
     // rejects, and `stream` is irrelevant on a non-streaming call. The generate
@@ -197,7 +204,7 @@ const dispatchOpenAIResponses = async (
         candidate,
         ctx,
         invocation.headers,
-        openAIResponsesTransportForEndpoint(candidate.model.endpoints.openaiResponses) === 'lite'
+        targetTransport === 'lite'
           ? { [OPENAI_RESPONSES_LITE_HEADER]: 'true' }
           : undefined,
       ),

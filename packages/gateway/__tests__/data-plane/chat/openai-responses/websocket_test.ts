@@ -13,6 +13,7 @@ import { FakeTime } from '../../../test-time.ts';
 import { buildCodexUpstreamRecord, codexModels, copilotModels, flushAsyncWork, setupAppTest, sseResponse, sseOpenAIResponsesResponse } from '../../../test-utils/app.ts';
 import { trackBackground } from '../../../test-utils/background-tracker.ts';
 import { installWorkerWebSocketRuntime, type TestWorkerWebSocket } from '../../../test-utils/worker-websocket.ts';
+import { OPENAI_RESPONSES_LITE_HEADER, OPENAI_RESPONSES_LITE_WS_METADATA_KEY } from '@floway-dev/protocols/openai-responses';
 import { assert, assertEquals, assertExists, assertStringIncludes, jsonResponse, withMockedFetch } from '@floway-dev/test-utils';
 
 const waitForMessages = async (
@@ -174,6 +175,79 @@ const completeOpenAIResponsesTurn = async (
   await received;
   await waitForMicrotasks();
 };
+
+test('Codex WebSocket preserves Astra Lite continuation and switches to standard per turn', async () => {
+  const { apiKey, repo } = await setupAppTest();
+  await repo.upstreams.save(buildCodexUpstreamRecord());
+  const upstreamBodies: Record<string, unknown>[] = [];
+  const upstreamLiteHeaders: Array<string | null> = [];
+  const prefix = [
+    { type: 'additional_tools', id: 'at_codex_thread', role: 'developer', tools: [{ type: 'function', name: 'lookup', parameters: { type: 'object' }, async: true }] },
+    { type: 'message', id: 'msg_codex_instructions', role: 'developer', content: [{ type: 'input_text', text: 'Be concise.' }] },
+    { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Look this up.' }] },
+  ];
+  const toolCall = { type: 'function_call', id: 'fc_async', call_id: 'call_async', name: 'lookup', arguments: '{}', status: 'completed' };
+  const continuation = [
+    { type: 'configuration_update', reasoning: { effort: 'xhigh' } },
+    { type: 'function_call_output', call_id: 'call_async', output: 'Lookup complete.' },
+  ];
+  await withMockedFetch(
+    async request => {
+      const url = new URL(request.url);
+      if (url.hostname === 'update.code.visualstudio.com') return jsonResponse(['1.110.1']);
+      if (url.pathname === '/copilot_internal/v2/token') {
+        return jsonResponse({ token: 'copilot-access-token', expires_at: 4102444800, refresh_in: 3600, endpoints: { api: 'https://api.individual.githubcopilot.com' } });
+      }
+      if (url.pathname === '/models') return jsonResponse(copilotModels([]));
+      if (url.pathname === '/backend-api/codex/models') {
+        return jsonResponse({ models: codexModels([{ slug: 'gpt-6-astra' }, { slug: 'gpt-5.4' }]).models.map(model => ({ ...model, use_responses_lite: model.slug === 'gpt-6-astra' })) });
+      }
+      if (url.pathname === '/backend-api/codex/responses') {
+        upstreamBodies.push(JSON.parse(await request.text()) as Record<string, unknown>);
+        upstreamLiteHeaders.push(request.headers.get(OPENAI_RESPONSES_LITE_HEADER));
+        const turn = upstreamBodies.length;
+        return sseOpenAIResponsesResponse({
+          id: `resp_lite_ws_${turn}`, object: 'response', model: turn < 3 ? 'gpt-6-astra' : 'gpt-5.4', status: 'completed',
+          output: turn === 1 ? [toolCall] : [],
+        });
+      }
+      throw new Error(`Unhandled fetch ${request.url}`);
+    },
+    async () => await withWorkerWebSocketRuntime(async () => {
+      const socket = await connectOpenAIResponsesWebSocket(apiKey.key);
+      const liteMetadata = { [OPENAI_RESPONSES_LITE_WS_METADATA_KEY]: 'true', thread_id: 'codex-thread' };
+      const firstTerminal = waitForMessages(socket, messages => messages.some(isTerminalResponseEvent));
+      socket.send(JSON.stringify({ type: 'response.create', model: 'gpt-6-astra', store: false, input: prefix, client_metadata: liteMetadata }));
+      const firstId = terminalResponseId(await firstTerminal);
+
+      const secondTerminal = waitForMessages(socket, messages => messages.some(isTerminalResponseEvent));
+      socket.send(JSON.stringify({ type: 'response.create', model: 'gpt-6-astra', store: false, previous_response_id: firstId, input: continuation, client_metadata: liteMetadata }));
+      await secondTerminal;
+
+      const thirdTerminal = waitForMessages(socket, messages => messages.some(isTerminalResponseEvent));
+      socket.send(JSON.stringify({ type: 'response.create', model: 'gpt-5.4', store: false, instructions: 'Standard instructions.', tools: [], input: 'New standard turn.', client_metadata: { thread_id: 'codex-thread' } }));
+      await thirdTerminal;
+
+      assertEquals(upstreamLiteHeaders, ['true', 'true', null]);
+      assertEquals(upstreamBodies[0].input, prefix);
+      assertEquals(upstreamBodies[1].input, [...prefix, toolCall, ...continuation]);
+      assertEquals(upstreamBodies[1].previous_response_id, undefined);
+      assertEquals(upstreamBodies[2].instructions, 'Standard instructions.');
+      assertEquals(upstreamBodies[2].tools, []);
+      for (const body of upstreamBodies) {
+        assertEquals((body.client_metadata as Record<string, unknown>)[OPENAI_RESPONSES_LITE_WS_METADATA_KEY], undefined);
+      }
+
+      const invalidMarker = waitForMessages(socket, messages => messages.some(message => message.type === 'error'));
+      socket.send(JSON.stringify({ type: 'response.create', model: 'gpt-6-astra', input: [], client_metadata: { [OPENAI_RESPONSES_LITE_WS_METADATA_KEY]: 'invalid' } }));
+      const error = (await invalidMarker).find(message => message.type === 'error');
+      assertEquals(error?.status, 400);
+      assertEquals((error?.error as Record<string, unknown>).code, 'invalid_value');
+      assertEquals(upstreamBodies.length, 3);
+      socket.close();
+    }),
+  );
+});
 
 test('OpenAI Responses WebSocket forwards stream events, echoes event_id, and ends the turn on the terminal event', async () => {
   const { apiKey } = await setupAppTest();

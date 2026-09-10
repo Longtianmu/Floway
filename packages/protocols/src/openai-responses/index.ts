@@ -106,6 +106,7 @@ export type OpenAIResponsesInputItem =
   | OpenAIResponsesContextCompactionItem
   | OpenAIResponsesCompactionItem
   | OpenAIResponsesCompactionTriggerItem
+  | OpenAIResponsesConfigurationUpdateItem
   | OpenAIResponsesInputImageGenerationCall
   | OpenAIResponsesCodeInterpreterCallItem
   | OpenAIResponsesLocalShellCallItem
@@ -234,6 +235,8 @@ export interface OpenAIResponsesFunctionToolCallItem {
   arguments: string;
   status: 'completed' | 'in_progress' | 'incomplete';
   caller?: OpenAIResponsesToolCaller | null;
+  // https://github.com/openai/openai-node/blob/fe2d6a382623b00753f002de539f8a26c936b5be/src/resources/responses/responses.ts#L3597-L3600
+  async?: boolean;
 }
 
 export interface OpenAIResponsesFunctionCallOutputItem {
@@ -259,6 +262,8 @@ export interface OpenAIResponsesCustomToolCallItem {
   namespace?: string;
   status?: string;
   caller?: OpenAIResponsesToolCaller | null;
+  // https://github.com/openai/openai-node/blob/fe2d6a382623b00753f002de539f8a26c936b5be/src/resources/responses/responses.ts#L2745-L2748
+  async?: boolean;
 }
 
 export interface OpenAIResponsesCustomToolCallOutputItem {
@@ -490,6 +495,15 @@ export interface OpenAIResponsesCompactionTriggerItem {
   type: 'compaction_trigger';
 }
 
+// Durable reasoning control: its position in input history determines which
+// later turns it governs. Keep future effort values intact for the upstream.
+// https://github.com/openai/openai-node/blob/fe2d6a382623b00753f002de539f8a26c936b5be/src/resources/responses/responses.ts#L2507-L2542
+export interface OpenAIResponsesConfigurationUpdateItem {
+  type: 'configuration_update';
+  id?: string | null;
+  reasoning?: { effort?: string | null };
+}
+
 // https://github.com/openai/openai-node/blob/39a15b412fc129df15339ebd6e3e6547854aa81f/src/resources/responses/responses.ts#L1852-L1915
 export interface OpenAIResponsesCodeInterpreterCallItem {
   type: 'code_interpreter_call';
@@ -662,6 +676,8 @@ export interface OpenAIResponsesFunctionTool {
   allowed_callers?: OpenAIResponsesToolAllowedCaller[] | null;
   defer_loading?: boolean;
   output_schema?: Record<string, unknown> | null;
+  // https://github.com/openai/openai-node/blob/fe2d6a382623b00753f002de539f8a26c936b5be/src/resources/responses/responses.ts#L846-L854
+  async?: boolean;
 }
 
 // Codex and other OpenAI Responses clients ship hosted server tools (web_search,
@@ -729,6 +745,8 @@ export interface OpenAIResponsesCustomTool {
   format?: Record<string, unknown>;
   allowed_callers?: OpenAIResponsesToolAllowedCaller[] | null;
   defer_loading?: boolean;
+  // https://github.com/openai/openai-node/blob/fe2d6a382623b00753f002de539f8a26c936b5be/src/resources/responses/responses.ts#L674-L678
+  async?: boolean;
 }
 
 // Namespace descriptions remain required, but OpenAI deliberately permits an
@@ -1087,6 +1105,8 @@ export interface OpenAIResponsesOutputFunctionCall {
   arguments: string;
   status: string;
   caller?: OpenAIResponsesToolCaller | null;
+  // https://github.com/openai/openai-node/blob/fe2d6a382623b00753f002de539f8a26c936b5be/src/resources/responses/responses.ts#L3597-L3600
+  async?: boolean;
 }
 
 export type OpenAIResponsesOutputCustomToolCall = OpenAIResponsesCustomToolCallItem;
