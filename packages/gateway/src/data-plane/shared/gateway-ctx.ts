@@ -49,12 +49,9 @@ export interface CreateGatewayCtxOptions {
   // handler can cancel mid-stream); HTTP call sites let the factory mint one
   // when wantsStream is true.
   downstreamAbortController?: AbortController;
-  // Already-buffered inbound request body bytes. HTTP handlers read them
-  // once via `readRequestBody` and pass them in so the dump accumulator's
-  // snapshot reflects the exact bytes the handler parsed. WebSocket
-  // upgrades carry no HTTP body — the WS OpenAI Responses path passes the
-  // per-turn JSON message bytes here so the dump captures the turn's
-  // input verbatim.
+  // Original inbound bytes captured for Dump. Chat handlers leave these
+  // empty when Dump is disabled. WebSocket upgrades carry no HTTP body;
+  // their dumps capture each turn's JSON message bytes instead.
   requestBody: RequestBody;
   // Override the HTTP method recorded on the dump's request snapshot. The
   // WS OpenAI Responses path uses `'WS'` so a dumped turn reads as
