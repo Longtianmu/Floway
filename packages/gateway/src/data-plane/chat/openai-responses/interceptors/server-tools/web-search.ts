@@ -27,7 +27,7 @@ import {
 } from '../../../../tools/web-search/operations.ts';
 import { resolveConfiguredWebSearchProvider } from '../../../../tools/web-search/provider.ts';
 import type { ConfiguredWebSearchProvider } from '../../../../tools/web-search/types.ts';
-import { type ServerToolLoopState, type ServerToolOutputItem, type ServerToolRegistration } from '../server-tool-shim.ts';
+import { initialOpenAIResponsesTools, type ServerToolLoopState, type ServerToolOutputItem, type ServerToolRegistration } from '../server-tool-shim.ts';
 import type { OpenAIResponsesFunctionTool, OpenAIResponsesFunctionToolCallItem, OpenAIResponsesHostedTool, OpenAIResponsesInputItem, OpenAIResponsesOutputWebSearchCall, OpenAIResponsesTool, OpenAIResponsesWebSearchAction } from '@floway-dev/protocols/openai-responses';
 import { createRandomOpenAIResponsesItemId, WEB_SEARCH_HOSTED_TYPE_NAMES } from '@floway-dev/protocols/openai-responses';
 import { providerModelOf } from '@floway-dev/provider';
@@ -706,7 +706,7 @@ export const webSearchServerTool: ServerToolRegistration = async (invocation, ga
     return { type: 'inactive' };
   }
 
-  const tools = Array.isArray(invocation.payload.tools) ? invocation.payload.tools : [];
+  const tools = initialOpenAIResponsesTools(invocation.payload);
   const hasHostedWebSearch = tools.some(isHostedWebSearchTool);
   const hasReplayInput = invocation.payload.input.some(i => i.type === 'web_search_call');
   if (!hasHostedWebSearch && !hasReplayInput) return { type: 'inactive' };

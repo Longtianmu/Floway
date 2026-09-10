@@ -102,14 +102,22 @@ test('standard source is converted to Responses Lite for a Lite target', async (
   assertEquals(callOpenAIResponses.mock.calls.length, 1);
 });
 
-test('Responses Lite conversion runs after the server-tool shim', async () => {
+test.each([
+  { sourceTransport: 'standard', tool: 'web_search', flag: 'openai-responses-web-search-shim' },
+  { sourceTransport: 'lite', tool: 'web_search', flag: 'openai-responses-web-search-shim' },
+  { sourceTransport: 'standard', tool: 'image_generation', flag: 'openai-responses-image-generation-shim' },
+  { sourceTransport: 'lite', tool: 'image_generation', flag: 'openai-responses-image-generation-shim' },
+] as const)('Responses Lite preserves $tool shim for a $sourceTransport source', async ({ sourceTransport, tool, flag }) => {
   installRepo();
   let capturedTools: unknown;
+  let capturedInput: CanonicalOpenAIResponsesPayload['input'] | undefined;
   const completed = makeOpenAIResponsesResult();
   const callOpenAIResponses = vi.fn(async (_model, body): Promise<ProviderOpenAIResponsesResult> => {
     const prefix = body.input[0];
     assert(prefix?.type === 'additional_tools');
     capturedTools = prefix.tools;
+    capturedInput = body.input;
+    assertEquals(body.tools, undefined);
     return {
       action: 'generate', ok: true,
       events: makeProviderEvents([
@@ -119,25 +127,31 @@ test('Responses Lite conversion runs after the server-tool shim', async () => {
       modelKey: 'test-model-key',
     };
   });
+  const sourcePayload = makePayload({ instructions: 'Be concise.', tools: [{ type: tool }] });
+  const payload = sourceTransport === 'lite' ? toLiteOpenAIResponsesPayload(sourcePayload) : sourcePayload;
   const result = await openaiResponsesAttempt.generate({
-    payload: makePayload({ tools: [{ type: 'web_search' }] }),
+    payload,
     ctx: makeGatewayCtx(),
     candidate: makeCandidate(
       callOpenAIResponses,
-      new Set(['openai-responses-web-search-shim']),
+      new Set([flag]),
       { openaiResponses: { transport: 'lite' } },
     ),
-    headers: new Headers(),
+    headers: new Headers(sourceTransport === 'lite' ? { [OPENAI_RESPONSES_LITE_HEADER]: 'true' } : undefined),
   });
   assertEquals(result.type, 'events');
   if (result.type === 'events') await collectEvents(result.events);
   expect(capturedTools).toEqual([{
     type: 'function',
-    name: 'web_search',
+    name: tool,
     description: expect.any(String),
     parameters: expect.any(Object),
     strict: false,
   }]);
+  if (sourceTransport === 'lite') {
+    expect(capturedInput?.[0].id).not.toEqual(payload.input[0].id);
+    assertEquals(capturedInput?.[1], payload.input[1]);
+  }
 });
 
 test('Responses Lite preserves hosted tools for the upstream when no shim owns them', async () => {
