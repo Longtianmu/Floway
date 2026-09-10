@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest';
 
-import { jsonRequestBody } from '../src/json-request.ts';
+import { jsonBodyStream, jsonRequestBody } from '../src/json-request.ts';
 
 const readChunks = async (body: ReturnType<typeof jsonRequestBody>): Promise<Uint8Array[]> => {
   const chunks: Uint8Array[] = [];
@@ -101,4 +101,50 @@ test('replays the bytes captured when the body is created', async () => {
   expect(await new Response(body.open()).text()).toBe('{"nested":{"text":"before"}}');
   expect(await new Response(body.open()).text()).toBe('{"nested":{"text":"before"}}');
   expect(body.contentLength).toBe(28);
+});
+
+test('JSON body streams preserve Date and the root, object, and array toJSON keys', async () => {
+  const calls: string[] = [];
+  const keyedValue = {
+    toJSON(key: string) {
+      calls.push(key);
+      return { key };
+    },
+  };
+  for (const value of [keyedValue, { named: keyedValue }, [keyedValue], new Date('2026-09-11T00:00:00.000Z')]) {
+    const expected = JSON.stringify(value);
+    const expectedCalls = calls.splice(0);
+    expect(await new Response(jsonBodyStream(value)).text()).toBe(expected);
+    expect(calls.splice(0)).toEqual(expectedCalls);
+  }
+});
+
+test('JSON body streams preserve boxed primitives and subclass coercion', async () => {
+  class NumberSubclass extends Number {
+    override valueOf(): number { return 23; }
+  }
+  class StringSubclass extends String {
+    override toString(): string { return 'Floway'; }
+  }
+  class BooleanSubclass extends Boolean {
+    override valueOf(): boolean { return true; }
+  }
+  const values: object[] = [
+    Object(7) as object, Object('text') as object, Object(false) as object,
+    new NumberSubclass(7), new StringSubclass('text'), new BooleanSubclass(false),
+  ];
+  for (const value of values) {
+    expect(await new Response(jsonBodyStream({ value })).text()).toBe(JSON.stringify({ value }));
+  }
+});
+
+test('JSON body streams reject boxed BigInt and Number coercion to BigInt', async () => {
+  class BigIntCoercingNumber extends Number {
+    [Symbol.toPrimitive](): bigint { return 1n; }
+  }
+  const values: object[] = [structuredClone(Object(1n)) as object, new BigIntCoercingNumber(1)];
+  for (const value of values) {
+    expect(() => JSON.stringify({ value })).toThrow(TypeError);
+    await expect(new Response(jsonBodyStream({ value })).text()).rejects.toThrow(TypeError);
+  }
 });

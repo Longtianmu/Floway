@@ -1,0 +1,44 @@
+diff --git a/src/utils.js b/src/utils.js
+--- a/src/utils.js
++++ b/src/utils.js
+@@ -12,4 +12,4 @@
+ export function replaceValue(holder, key, value, replacer) {
+     if (value && typeof value.toJSON === 'function') {
+-        value = value.toJSON();
++        value = value.toJSON(String(key));
+     }
+@@ -29,4 +29,9 @@
+-                const cls = value.constructor;
+-                if (cls === String || cls === Number || cls === Boolean) {
+-                    value = value.valueOf();
++                if (value instanceof Number) {
++                    value = +value;
++                } else if (value instanceof String) {
++                    value = String(value);
++                } else if (value instanceof Boolean) {
++                    value = Boolean.prototype.valueOf.call(value);
++                } else if (value instanceof BigInt) {
++                    value = BigInt.prototype.valueOf.call(value);
+                 }
+diff --git a/cjs/utils.cjs b/cjs/utils.cjs
+--- a/cjs/utils.cjs
++++ b/cjs/utils.cjs
+@@ -14,4 +14,4 @@
+ function replaceValue(holder, key, value, replacer) {
+     if (value && typeof value.toJSON === 'function') {
+-        value = value.toJSON();
++        value = value.toJSON(String(key));
+     }
+@@ -31,4 +31,9 @@
+-                const cls = value.constructor;
+-                if (cls === String || cls === Number || cls === Boolean) {
+-                    value = value.valueOf();
++                if (value instanceof Number) {
++                    value = +value;
++                } else if (value instanceof String) {
++                    value = String(value);
++                } else if (value instanceof Boolean) {
++                    value = Boolean.prototype.valueOf.call(value);
++                } else if (value instanceof BigInt) {
++                    value = BigInt.prototype.valueOf.call(value);
+                 }

@@ -1,7 +1,9 @@
 import type { StoredOpenAIResponsesItemPayload } from './types.ts';
-import { gunzipBytes, gzipBytes } from '../shared/gzip.ts';
+import { gunzipStream, gzipStream } from '../shared/gzip.ts';
+import { parseJsonStream } from '../shared/json-stream.ts';
 import { getFileStore, sha256Hex } from '@floway-dev/platform';
 import { decodeForgivingBase64, encodeBase64, encodeBase64url } from '@floway-dev/protocols/common';
+import { jsonBodyStream } from '@floway-dev/provider';
 
 type StoredOpenAIResponsesPayloadJson =
   | {
@@ -27,7 +29,13 @@ const INLINE_PAYLOAD_LIMIT_BYTES = 64 * 1024;
 const OPENAI_RESPONSES_ITEMS_FILE_ROOT = 'responses-items/v2/objects/';
 
 const encoder = new TextEncoder();
-const decoder = new TextDecoder();
+const inlineDescriptor = (payload: string): StoredOpenAIResponsesPayloadJson => ({
+  version: 1,
+  storage: 'inline',
+  encoding: 'gzip',
+  payload,
+});
+const INLINE_DESCRIPTOR_OVERHEAD_BYTES = encoder.encode(JSON.stringify(inlineDescriptor(''))).byteLength;
 
 export interface PreparedStoredOpenAIResponsesPayload {
   payloadJson: string;
@@ -39,17 +47,13 @@ export const prepareStoredOpenAIResponsesPayload = async (
   apiKeyId: string,
   payload: StoredOpenAIResponsesItemPayload,
 ): Promise<PreparedStoredOpenAIResponsesPayload> => {
-  const rawBytes = encoder.encode(JSON.stringify(payload));
-  const gzippedBytes = await gzipBytes(rawBytes);
+  const gzippedBytes = await gzipStream(jsonBodyStream(payload));
 
-  const inlineJson = JSON.stringify({
-    version: 1,
-    storage: 'inline',
-    encoding: 'gzip',
-    payload: encodeBase64(gzippedBytes),
-  } satisfies StoredOpenAIResponsesPayloadJson);
-  if (encoder.encode(inlineJson).byteLength <= INLINE_PAYLOAD_LIMIT_BYTES) {
-    return { payloadJson: inlineJson, file: null };
+  // Base64 is ASCII and needs no JSON escaping. Check the exact padded length
+  // before allocating a string for a payload that will be stored as a file.
+  const inlineByteLength = INLINE_DESCRIPTOR_OVERHEAD_BYTES + 4 * Math.ceil(gzippedBytes.byteLength / 3);
+  if (inlineByteLength <= INLINE_PAYLOAD_LIMIT_BYTES) {
+    return { payloadJson: JSON.stringify(inlineDescriptor(encodeBase64(gzippedBytes))), file: null };
   }
 
   // File body holds the gzipped payload bytes only. The descriptor in D1's
@@ -88,7 +92,7 @@ export const parseStoredOpenAIResponsesPayload = async (
   const descriptor = parseDescriptor(id, raw);
   if (descriptor.storage === 'inline') {
     if (fileKey !== null) throw new Error(`Inline OpenAI Responses payload unexpectedly owns a file for id=${id}`);
-    return parseInlinePayloadJson(id, await ungzipToString(decodeForgivingBase64(descriptor.payload)));
+    return await parseGzippedPayloadJson(id, decodeForgivingBase64(descriptor.payload));
   }
 
   if (fileKey === null) throw new Error(`Stored OpenAI Responses payload file key missing for id=${id}`);
@@ -102,13 +106,13 @@ export const parseStoredOpenAIResponsesPayload = async (
     throw new Error(`Stored OpenAI Responses payload file hash mismatch for id=${id}`);
   }
 
-  return parseInlinePayloadJson(id, await ungzipToString(body));
+  return await parseGzippedPayloadJson(id, body);
 };
 
-const parseInlinePayloadJson = (id: string, json: string): StoredOpenAIResponsesItemPayload => {
+const parseGzippedPayloadJson = async (id: string, bytes: Uint8Array): Promise<StoredOpenAIResponsesItemPayload> => {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(json);
+    parsed = await parseJsonStream(gunzipStream(bytes));
   } catch (cause) {
     throw new Error(`Malformed stored OpenAI Responses payload JSON for id=${id}: ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
   }
@@ -146,9 +150,6 @@ const assertPayloadObject = (id: string, value: unknown): StoredOpenAIResponsesI
   if (Object.hasOwn(value, 'private')) payload.private = value.private;
   return payload;
 };
-
-const ungzipToString = async (bytes: Uint8Array): Promise<string> =>
-  decoder.decode(await gunzipBytes(bytes));
 
 const randomFileSuffix = (): string => {
   const bytes = new Uint8Array(16);

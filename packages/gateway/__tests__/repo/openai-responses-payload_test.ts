@@ -1,11 +1,13 @@
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 
 import {
   parseStoredOpenAIResponsesPayload,
   prepareStoredOpenAIResponsesPayload,
   writePreparedStoredOpenAIResponsesPayload,
 } from '../../src/repo/openai-responses-payload.ts';
+import * as gzip from '../../src/shared/gzip.ts';
 import { initFileStore, MemoryFileStore } from '@floway-dev/platform';
+import * as base64 from '@floway-dev/protocols/common';
 
 const payload = (content: string) => ({
   item: { type: 'message', id: 'msg_payload', role: 'assistant', content },
@@ -35,6 +37,26 @@ test('reads a fixed inline OpenAI Responses payload in the persisted format', as
     payload: 'H4sIAAAAAAAAE0XKOwrAMAwE0btsrRPoMsHEizHEHyw1wfjuQVXKGd5GdTbohr+TUDSapUIIao60ck0uq+bMEKzxhEoWJ3WH4B7d2R2KH57zAX61IIJZAAAA',
   });
   await expect(parseStoredOpenAIResponsesPayload('msg_persisted', descriptor, null)).resolves.toEqual(expected);
+});
+
+test('OpenAI Responses persistence preserves Date and custom JSON values without cloning or measuring them first', async () => {
+  const toJSON = vi.fn((key: string) => ({ preserved: 'Floway', key }));
+  const input = {
+    ...payload('custom JSON'),
+    private: { date: new Date('2026-09-11T00:00:00.000Z'), custom: { toJSON } },
+  };
+  const prepared = await prepareStoredOpenAIResponsesPayload('msg_custom', 'key-a', input);
+  expect(toJSON).toHaveBeenCalledTimes(1);
+  expect(toJSON).toHaveBeenCalledWith('custom');
+  await expect(parseStoredOpenAIResponsesPayload('msg_custom', prepared.payloadJson, null)).resolves.toStrictEqual({
+    ...payload('custom JSON'),
+    private: { date: '2026-09-11T00:00:00.000Z', custom: { preserved: 'Floway', key: 'custom' } },
+  });
+});
+
+test('OpenAI Responses persistence rejects a boxed BigInt in cloned private state', async () => {
+  const input = { ...payload('boxed BigInt'), private: structuredClone(Object(1n)) as object };
+  await expect(prepareStoredOpenAIResponsesPayload('msg_bigint', 'key-a', input)).rejects.toThrow(TypeError);
 });
 
 test('large OpenAI Responses payloads use an external file whose key is not embedded in payload JSON', async () => {
@@ -74,4 +96,75 @@ test('spilled payload reads verify file integrity', async () => {
   await files.put(prepared.file.key, new Uint8Array([1, 2, 3]));
   await expect(parseStoredOpenAIResponsesPayload('msg_payload', prepared.payloadJson, prepared.file.key))
     .rejects.toThrow(/size mismatch|hash mismatch/u);
+});
+
+test('OpenAI Responses persistence streams large image JSON without a complete UTF-8 or decoded text buffer', async () => {
+  initFileStore(new MemoryFileStore());
+  const expected = {
+    item: {
+      type: 'message',
+      role: 'user',
+      content: Array.from({ length: 10 }, (_, index) => ({
+        type: 'input_image',
+        image_url: `data:image/png;base64,${String(index).repeat(256 * 1024)}`,
+      })),
+    },
+    private: { text: '你好 😀\ud800'.repeat(10_000), exponent: 1e21 },
+  };
+  const encode = vi.spyOn(TextEncoder.prototype, 'encode');
+  const decode = vi.spyOn(TextDecoder.prototype, 'decode');
+  try {
+    const prepared = await prepareStoredOpenAIResponsesPayload('msg_images', 'key-a', expected);
+    await writePreparedStoredOpenAIResponsesPayload(prepared);
+    const restored = await parseStoredOpenAIResponsesPayload('msg_images', prepared.payloadJson, prepared.file?.key ?? null);
+    expect(restored).toStrictEqual(expected);
+    expect(encode.mock.calls.length).toBeGreaterThan(10);
+    for (const [text] of encode.mock.calls) expect(text?.length ?? 0).toBeLessThanOrEqual(16 * 1024);
+    expect(decode.mock.calls.length).toBeGreaterThan(10);
+    for (const [bytes] of decode.mock.calls) expect(bytes?.byteLength ?? 0).toBeLessThanOrEqual(64 * 1024);
+  } finally {
+    encode.mockRestore();
+    decode.mockRestore();
+  }
+});
+
+test('OpenAI Responses spill selection accounts for padded Base64 before encoding it', async () => {
+  const overhead = JSON.stringify({ version: 1, storage: 'inline', encoding: 'gzip', payload: '' }).length;
+  const largestInlineGzipLength = Math.floor((64 * 1024 - overhead) / 4) * 3;
+  const compress = vi.spyOn(gzip, 'gzipStream');
+  const encode = vi.spyOn(base64, 'encodeBase64');
+  try {
+    for (const length of [largestInlineGzipLength - 1, largestInlineGzipLength, largestInlineGzipLength + 1, 128 * 1024]) {
+      compress.mockResolvedValueOnce(new Uint8Array(length));
+      encode.mockClear();
+      const prepared = await prepareStoredOpenAIResponsesPayload('msg_boundary', 'key-a', payload('boundary'));
+      const descriptor: unknown = JSON.parse(prepared.payloadJson);
+      const fitsInline = overhead + 4 * Math.ceil(length / 3) <= 64 * 1024;
+      expect(descriptor).toMatchObject({ storage: fitsInline ? 'inline' : 'file' });
+      expect(encode).toHaveBeenCalledTimes(fitsInline ? 1 : 0);
+      expect(new TextEncoder().encode(prepared.payloadJson).byteLength).toBeLessThanOrEqual(64 * 1024);
+    }
+  } finally {
+    compress.mockRestore();
+    encode.mockRestore();
+  }
+});
+
+test.each(['{"item":', '{"item":{}} null'])('stored OpenAI Responses rejects malformed streamed JSON and preserves its cause: %s', async json => {
+  const compressed = await gzip.gzipBytes(new TextEncoder().encode(json));
+  const descriptor = JSON.stringify({ version: 1, storage: 'inline', encoding: 'gzip', payload: base64.encodeBase64(compressed) });
+  await expect(parseStoredOpenAIResponsesPayload('msg_invalid', descriptor, null)).rejects.toMatchObject({
+    message: expect.stringContaining('Malformed stored OpenAI Responses payload JSON for id=msg_invalid'),
+    cause: expect.any(Error),
+  });
+});
+
+test('stored OpenAI Responses rejects a corrupt gzip trailer after a complete JSON object', async () => {
+  const compressed = await gzip.gzipBytes(new TextEncoder().encode(JSON.stringify(payload('complete'))));
+  compressed[compressed.length - 8] ^= 0x80;
+  const descriptor = JSON.stringify({ version: 1, storage: 'inline', encoding: 'gzip', payload: base64.encodeBase64(compressed) });
+  await expect(parseStoredOpenAIResponsesPayload('msg_corrupt', descriptor, null)).rejects.toMatchObject({
+    message: expect.stringContaining('Malformed stored OpenAI Responses payload JSON for id=msg_corrupt'),
+    cause: expect.any(Error),
+  });
 });

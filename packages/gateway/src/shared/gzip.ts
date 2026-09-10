@@ -18,13 +18,18 @@
 // `Uint8Array<ArrayBufferLike>`; both runtimes accept any view here, and the
 // alternative — copying through `new Uint8Array(bytes)` to satisfy the lib
 // type — would allocate a second full copy of every payload we compress.
-const bytesStream = (bytes: Uint8Array): ReadableStream<BufferSource> =>
-  new ReadableStream<BufferSource>({
-    start(controller) {
-      controller.enqueue(bytes as BufferSource);
-      controller.close();
+const bytesStream = (bytes: Uint8Array): ReadableStream<BufferSource> => {
+  let offset = 0;
+  return new ReadableStream<BufferSource>({
+    pull(controller) {
+      if (offset === bytes.byteLength) controller.close();
+      else {
+        controller.enqueue(bytes.subarray(offset, offset + 64 * 1024) as BufferSource);
+        offset = Math.min(offset + 64 * 1024, bytes.byteLength);
+      }
     },
   });
+};
 
 const collect = async (stream: ReadableStream): Promise<Uint8Array> =>
   new Uint8Array(await new Response(stream).arrayBuffer());
@@ -32,5 +37,13 @@ const collect = async (stream: ReadableStream): Promise<Uint8Array> =>
 export const gzipBytes = async (bytes: Uint8Array): Promise<Uint8Array> =>
   await collect(bytesStream(bytes).pipeThrough(new CompressionStream('gzip')));
 
+// The input comes from the shared JSON serializer in bounded byte chunks.
+// As above, this cast accepts views without copying their backing buffers.
+export const gzipStream = async (stream: ReadableStream<Uint8Array>): Promise<Uint8Array> =>
+  await collect((stream as ReadableStream<BufferSource>).pipeThrough(new CompressionStream('gzip')));
+
+export const gunzipStream = (bytes: Uint8Array): ReadableStream<Uint8Array> =>
+  bytesStream(bytes).pipeThrough(new DecompressionStream('gzip'));
+
 export const gunzipBytes = async (bytes: Uint8Array): Promise<Uint8Array> =>
-  await collect(bytesStream(bytes).pipeThrough(new DecompressionStream('gzip')));
+  await collect(gunzipStream(bytes));

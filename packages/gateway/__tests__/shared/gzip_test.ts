@@ -1,6 +1,6 @@
-import { test } from 'vitest';
+import { expect, test } from 'vitest';
 
-import { gunzipBytes, gzipBytes } from '../../src/shared/gzip.ts';
+import { gunzipBytes, gunzipStream, gzipBytes, gzipStream } from '../../src/shared/gzip.ts';
 import { assert, assertEquals } from '@floway-dev/test-utils';
 
 const roundTrip = async (bytes: Uint8Array): Promise<Uint8Array> => await gunzipBytes(await gzipBytes(bytes));
@@ -51,4 +51,46 @@ test('gunzipBytes rejects input that is not gzip', async () => {
     () => { throw new Error('expected gunzipBytes to reject non-gzip input'); },
     () => undefined,
   );
+});
+
+test('gzipStream round-trips chunked data through gunzipStream', async () => {
+  let reads = 0;
+  const expected = new TextEncoder().encode('你好 Floway 😀'.repeat(20_000));
+  const compressed = await gzipStream(new ReadableStream<Uint8Array>({
+    pull(controller) {
+      const start = reads++ * 1024;
+      if (start >= expected.byteLength) controller.close();
+      else controller.enqueue(expected.subarray(start, start + 1024));
+    },
+  }));
+  const reader = gunzipStream(compressed).getReader();
+  const chunks: Uint8Array[] = [];
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+  reader.releaseLock();
+  expect(reads).toBeGreaterThan(1);
+  expect(chunks.length).toBeGreaterThan(1);
+  const actual = new Uint8Array(chunks.reduce((length, chunk) => length + chunk.byteLength, 0));
+  let offset = 0;
+  for (const chunk of chunks) {
+    actual.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  expect(actual).toEqual(expected);
+});
+
+test('gzipStream preserves a source failure', async () => {
+  const failure = new Error('source failed');
+  let reads = 0;
+  const source = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (reads++ === 0) controller.enqueue(new TextEncoder().encode('Floway'));
+      else controller.error(failure);
+    },
+  });
+  await expect(gzipStream(source)).rejects.toBe(failure);
+  expect(reads).toBe(2);
 });
