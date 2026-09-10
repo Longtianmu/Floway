@@ -218,6 +218,51 @@ test.each(['generate', 'compact'] as const)('native Responses Lite %s preserves 
   assertEquals(callOpenAIResponses.mock.calls.length, 1);
 });
 
+test.each(['generate', 'compact'] as const)('native Responses Lite %s keeps the compact and server-tool shims composed', async action => {
+  installRepo();
+  const source = toLiteOpenAIResponsesPayload(makePayload({
+    instructions: 'Be concise.',
+    tools: [{ type: 'web_search' }],
+  }));
+  // Codex omits internal message metadata when using a custom provider.
+  const base = source.input[1];
+  if (base.type !== 'message') throw new Error('Expected a base-instructions message');
+  delete base.internal_chat_message_metadata_passthrough;
+  source.input.splice(2, 0, { type: 'message', role: 'developer', content: [{ type: 'input_text', text: 'Project instructions.' }] });
+  if (action === 'generate') source.input.push({ type: 'compaction_trigger' });
+  const completed = makeOpenAIResponsesResult();
+  const callOpenAIResponses = vi.fn(async (_model, body, actualAction): Promise<ProviderOpenAIResponsesResult> => {
+    assertEquals(actualAction, 'generate');
+    const prefix = body.input[0];
+    assert(prefix.type === 'additional_tools');
+    expect(prefix.tools).toEqual([expect.objectContaining({ type: 'function', name: 'web_search' })]);
+    assertEquals(body.input.slice(1, 3), source.input.slice(1, 3));
+    const compactor = body.input[3];
+    assert(compactor.type === 'message' && Array.isArray(compactor.content));
+    assertEquals(compactor.role, 'system');
+    expect(compactor.content[0]).toEqual(expect.objectContaining({ type: 'input_text', text: expect.stringContaining('CONTEXT CHECKPOINT COMPACTION') }));
+    assertEquals(body.input[4], source.input[3]);
+    assert(!body.input.some(item => item.type === 'compaction_trigger'));
+    assertEquals(body.tools, undefined);
+    return {
+      action: 'generate', ok: true,
+      events: makeProviderEvents([
+        { type: 'response.created', response: completed },
+        { type: 'response.output_item.done', output_index: 0, item: completed.output[0] },
+        { type: 'response.completed', response: completed },
+      ]),
+      modelKey: 'test-model-key',
+    };
+  });
+  const result = await openaiResponsesAttempt.invoke({
+    action, payload: source, ctx: makeGatewayCtx(),
+    candidate: makeCandidate(callOpenAIResponses, new Set(['openai-responses-compact-shim', 'openai-responses-web-search-shim']), { openaiResponses: { transport: 'lite' } }),
+    headers: new Headers({ [OPENAI_RESPONSES_LITE_HEADER]: 'true' }),
+  });
+  if (result.type === 'events') await collectEvents(result.events);
+  assertEquals(callOpenAIResponses.mock.calls.length, 1);
+});
+
 const collectEvents = async (events: AsyncIterable<ProtocolFrame<OpenAIResponsesStreamEvent>>): Promise<OpenAIResponsesStreamEvent[]> => {
   const out: OpenAIResponsesStreamEvent[] = [];
   for await (const frame of events) {

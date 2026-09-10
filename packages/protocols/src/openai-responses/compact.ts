@@ -53,8 +53,12 @@ export const toCompactPayloadShape = (
   ...(payload.prompt_cache_options !== undefined && { prompt_cache_options: payload.prompt_cache_options }),
   ...(payload.prompt_cache_retention !== undefined && { prompt_cache_retention: payload.prompt_cache_retention }),
   ...(payload.service_tier !== undefined && { service_tier: payload.service_tier }),
-  // Codex's Lite compact wire deliberately carries these create-only fields.
-  // https://github.com/openai/codex/blob/315195492c80fdade38e917c18f9584efd599304/codex-rs/core/src/client.rs
+  // Codex's unary Lite compact request copies these controls from its Responses
+  // request. Its transport test asserts the Lite header and reasoning/parallel
+  // settings on `/responses/compact`; text is retained by CompactionInput.
+  // https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/core/src/client.rs#L640-L674
+  // https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/codex-api/src/common.rs#L46-L66
+  // https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/core/tests/suite/responses_lite.rs#L546-L598
   ...(transport === 'lite' && payload.reasoning !== undefined && { reasoning: payload.reasoning }),
   ...(transport === 'lite' && payload.parallel_tool_calls !== undefined && { parallel_tool_calls: payload.parallel_tool_calls }),
   ...(transport === 'lite' && payload.text !== undefined && { text: payload.text }),
