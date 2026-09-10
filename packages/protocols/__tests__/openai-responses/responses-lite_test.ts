@@ -140,15 +140,19 @@ describe('Responses Lite transport', () => {
   test('preserves non-remote image references and case-insensitive data schemes', () => {
     const lite = toLiteOpenAIResponsesPayload({
       model: 'gpt-test',
-      input: [{ type: 'message', role: 'user', content: [
-        { type: 'input_image', image_url: 'DATA:image/png;base64,AQID', detail: 'original' },
-        { type: 'input_image', file_id: 'file_image', detail: 'high' },
-      ] }],
+      input: [{
+        type: 'message', role: 'user', content: [
+          { type: 'input_image', image_url: 'DATA:image/png;base64,AQID', detail: 'original' },
+          { type: 'input_image', file_id: 'file_image', detail: 'high' },
+        ],
+      }],
     });
-    expect(lite.input.at(-1)).toMatchObject({ content: [
-      { type: 'input_image', image_url: 'DATA:image/png;base64,AQID' },
-      { type: 'input_image', file_id: 'file_image' },
-    ] });
+    expect(lite.input.at(-1)).toMatchObject({
+      content: [
+        { type: 'input_image', image_url: 'DATA:image/png;base64,AQID' },
+        { type: 'input_image', file_id: 'file_image' },
+      ],
+    });
     expect(JSON.stringify(lite)).not.toContain('detail');
   });
 

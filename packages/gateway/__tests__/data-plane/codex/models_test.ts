@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
-import type { CodexCatalogCapabilities } from '../../../src/data-plane/codex/catalog.ts';
 import bundledCatalog from '../../../src/data-plane/codex/catalog/bundled.json' with { type: 'json' };
+import type { CodexCatalogCapabilities } from '../../../src/data-plane/codex/catalog.ts';
 import { assembleCodexCatalog } from '../../../src/data-plane/codex/models.ts';
 import type { AddressableIdEntry } from '../../../src/data-plane/shared/listing/addressable.ts';
 import type { InternalModel } from '@floway-dev/provider';
