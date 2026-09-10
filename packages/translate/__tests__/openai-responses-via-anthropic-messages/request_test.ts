@@ -118,6 +118,23 @@ test('buildTargetRequest accepts null tool_choice', async () => {
   assertEquals(result.target.tool_choice, undefined);
 });
 
+test.each([
+  [{ type: 'function', name: 'lookup', async: true }],
+  [{ type: 'custom', name: 'lookup', async: true }],
+  [{ type: 'namespace', name: 'research', tools: [{ type: 'function', name: 'lookup', parameters: { type: 'object' }, async: true }] }],
+] as OpenAIResponsesTool[][])('buildTargetRequest rejects asynchronous tool semantics unsupported by Anthropic Messages (%j)', async (...tools) => {
+  await assertRejects(
+    () => buildTargetRequest({ ...minimalPayload, tools }),
+    Error,
+    'Asynchronous',
+  );
+});
+
+test('buildTargetRequest preserves synchronous tools with async false', async () => {
+  const { target } = await buildTargetRequest({ ...minimalPayload, tools: [{ type: 'function', name: 'lookup', async: false }] });
+  assertEquals(target.tools?.[0]?.name, 'lookup');
+});
+
 test('buildTargetRequest rejects multimodal custom tool output', async () => {
   await assertRejects(
     () => buildTargetRequest({

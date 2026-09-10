@@ -568,6 +568,23 @@ test('buildTargetRequest accepts null tool_choice', () => {
   assertEquals(result.target.tool_choice, undefined);
 });
 
+test.each([
+  [{ type: 'function', name: 'lookup', async: true }],
+  [{ type: 'custom', name: 'lookup', async: true }],
+  [{ type: 'namespace', name: 'research', tools: [{ type: 'function', name: 'lookup', parameters: { type: 'object' }, async: true }] }],
+] as OpenAIResponsesTool[][])('buildTargetRequest rejects asynchronous tool semantics unsupported by OpenAI Chat Completions (%j)', (...tools) => {
+  assertThrows(
+    () => buildTargetRequest({ model: 'gpt-test', input: 'hi', tools }),
+    Error,
+    'Asynchronous',
+  );
+});
+
+test('buildTargetRequest preserves synchronous tools with async false', () => {
+  const { target } = buildTargetRequest({ model: 'gpt-test', input: 'hi', tools: [{ type: 'function', name: 'lookup', async: false }] });
+  assertEquals(target.tools?.[0]?.function.name, 'lookup');
+});
+
 test('buildTargetRequest rejects multimodal custom tool output', () => {
   assertThrows(
     () => buildTargetRequest({
