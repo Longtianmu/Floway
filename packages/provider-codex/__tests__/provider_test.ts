@@ -153,7 +153,7 @@ describe('createCodexProvider', () => {
       slug: 'gpt-6-astra', display_name: 'GPT-6-Astra', context_window: 272000,
       input_modalities: ['text', 'image'], use_responses_lite: true,
       supported_reasoning_levels: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'].map(effort => ({ effort, description: '' })),
-      default_reasoning_level: 'medium',
+      default_reasoning_level: 'low', multi_agent_reasoning_effort: 'xhigh',
     };
     vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
       const url = new URL(String(input));
@@ -172,7 +172,7 @@ describe('createCodexProvider', () => {
       limits: { max_context_window_tokens: 272000 },
       chat: {
         modalities: { input: ['text', 'image'], output: ['text'] },
-        reasoning: { effort: { supported: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'], default: 'medium' } },
+        reasoning: { effort: { supported: ['low', 'medium', 'high', 'xhigh', 'max'], default: 'low' } },
       },
     });
     expect(models.find(model => model.id === 'gpt-5.4')?.endpoints).toEqual({ openaiResponses: {} });
@@ -278,7 +278,7 @@ describe('createCodexProvider', () => {
     ]);
   });
 
-  test.each(['generate', 'compact'] as const)('native Lite %s keeps instructions exclusively in input at the provider boundary', async action => {
+  test.each((['generate', 'compact'] as const).flatMap(action => ['ultra', 'persistent', 'future_effort'].map(effort => ({ action, effort }))))('native Lite $action keeps instructions in input and explicit $effort unchanged', async ({ action, effort }) => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(action === 'generate'
       ? sseResponse()
       : new Response(JSON.stringify({ id: 'cmp_result', object: 'response.compaction', output: [] }), { headers: { 'content-type': 'application/json' } }));
@@ -286,13 +286,13 @@ describe('createCodexProvider', () => {
       { type: 'additional_tools', role: 'developer', id: 'at_client', tools: [{ type: 'function', name: 'lookup', async: true }] },
       { type: 'message', role: 'developer', id: 'msg_client', content: 'Native instructions.' },
       { type: 'message', role: 'user', content: 'Hello.' },
-      { type: 'configuration_update', reasoning: { effort: 'ultra' } },
+      { type: 'configuration_update', reasoning: { effort } },
     ];
     const opts = noopUpstreamCallOptions();
     opts.headers.set(OPENAI_RESPONSES_LITE_HEADER, 'true');
     const result = await createCodexProvider(baseRecord).instance.callOpenAIResponses(
       stubProviderModel({ id: 'gpt-6-astra', endpoints: { openaiResponses: { transport: 'lite' } } }),
-      { input, reasoning: { effort: 'ultra', context: 'all_turns' }, parallel_tool_calls: false, access_programs: { cyber: 'future_program' } },
+      { input, reasoning: { effort, context: 'all_turns' }, parallel_tool_calls: false, access_programs: { cyber: 'future_program' } },
       action, undefined, opts,
     );
     expect(result.ok).toBe(true);
@@ -305,7 +305,7 @@ describe('createCodexProvider', () => {
     expect(body.input).toEqual(input);
     expect(body).not.toHaveProperty('instructions');
     expect(body).not.toHaveProperty('tools');
-    expect(body.reasoning).toEqual({ effort: 'ultra', context: 'all_turns' });
+    expect(body.reasoning).toEqual({ effort, context: 'all_turns' });
     expect(body.parallel_tool_calls).toBe(false);
     expect(body.access_programs).toEqual({ cyber: 'future_program' });
   });

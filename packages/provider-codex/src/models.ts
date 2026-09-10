@@ -20,6 +20,7 @@ export interface CodexRawModel {
   input_modalities?: readonly ('text' | 'image')[];
   reasoning_efforts?: readonly string[];
   default_reasoning_effort?: string;
+  multi_agent_reasoning_effort?: string;
   // Upstream selects its wire profile independently of the model slug.
   // https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/models-manager/models.json
   use_responses_lite?: boolean;
@@ -102,7 +103,29 @@ const assertRawModel = (value: unknown): CodexRawModel => {
     raw.use_responses_lite = value.use_responses_lite;
   }
 
+  if (value.multi_agent_reasoning_effort != null) {
+    if (typeof value.multi_agent_reasoning_effort !== 'string' || value.multi_agent_reasoning_effort.length === 0) {
+      throw new TypeError(`Codex model entry ${slug} multi_agent_reasoning_effort malformed`);
+    }
+    raw.multi_agent_reasoning_effort = value.multi_agent_reasoning_effort;
+  }
+
   return raw;
+};
+
+// The Codex picker includes local orchestration/settings aliases. Public model
+// metadata advertises the inference values those settings resolve to, because
+// ordinary Responses clients do not run Codex's local orchestration. Preserve
+// every other upstream effort string. This is catalog projection only; callers'
+// explicit request values remain untouched at the provider boundary.
+// https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/protocol/src/openai_models/reasoning_effort.rs#L7-L37
+const inferenceEffort = (raw: CodexRawModel, effort: string): string => {
+  if (effort === 'persistent') return 'disabled';
+  if (effort !== 'ultra') return effort;
+  const levels = raw.reasoning_efforts ?? [];
+  const configured = raw.multi_agent_reasoning_effort;
+  if (configured !== undefined && configured !== 'ultra' && levels.includes(configured)) return configured;
+  return levels.includes('max') ? 'max' : levels.findLast(level => level !== 'ultra') ?? 'medium';
 };
 
 // Every entry returned by the remote Codex catalog is an OpenAI Responses chat model.
@@ -130,7 +153,12 @@ export const codexRawToProviderModel = (raw: CodexRawModel, enabledFlags: Readon
     } else {
       effortDefault = raw.reasoning_efforts.includes('medium') ? 'medium' : raw.reasoning_efforts[0]!;
     }
-    chat.reasoning = { effort: { supported: raw.reasoning_efforts, default: effortDefault } };
+    chat.reasoning = {
+      effort: {
+        supported: [...new Set(raw.reasoning_efforts.map(effort => inferenceEffort(raw, effort)))],
+        default: inferenceEffort(raw, effortDefault),
+      },
+    };
   }
   return {
     id: raw.id,
