@@ -49,4 +49,7 @@ export const rejectProgramCaller = (item: OpenAIResponsesInputItem): void => {
   if (isProgramCaller(item)) {
     throw new TranslatorInputError(`Cannot translate ${item.type} '${item.call_id}' with a program caller.`);
   }
+  if ('async' in item && item.async === true) {
+    throw new TranslatorInputError(`Cannot translate asynchronous ${item.type} history.`);
+  }
 };

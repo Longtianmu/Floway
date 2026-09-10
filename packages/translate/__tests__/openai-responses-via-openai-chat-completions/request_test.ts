@@ -551,6 +551,19 @@ test('buildTargetRequest wires OpenAI Responses tooling guards', () => {
   assertThrows(
     () => buildTargetRequest({
       model: 'gpt-test',
+      input: [{ type: 'function_call', name: 'lookup', call_id: 'pending', arguments: '{}', status: 'completed', async: true }],
+    }),
+    Error,
+    'asynchronous',
+  );
+  assertThrows(
+    () => buildTargetRequest({ model: 'gpt-test', input: [{ type: 'configuration_update', reasoning: { effort: 'xhigh' } }] }),
+    Error,
+    'configuration_update',
+  );
+  assertThrows(
+    () => buildTargetRequest({
+      model: 'gpt-test',
       input: [{ type: 'function_call_output', call_id: 'call_1', output: 'ok', caller: { type: 'program', caller_id: 'call_prog_1' } }],
     }),
     Error,

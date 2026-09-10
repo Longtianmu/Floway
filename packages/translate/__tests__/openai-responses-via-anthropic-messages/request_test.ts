@@ -89,6 +89,7 @@ test.each([
   { name: 'multi_agent_call_output', input: [{ type: 'multi_agent_call_output', action: 'spawn_agent', call_id: 'call_1', output: [] as OpenAIResponsesInputMultiAgentCallOutputItem['output'] }] },
   { name: 'context_compaction', input: [{ type: 'context_compaction', encrypted_content: 'opaque' }] },
   { name: 'item_reference', input: [{ type: 'item_reference', id: 'msg_1' }] },
+  { name: 'configuration_update', input: [{ type: 'configuration_update', reasoning: { effort: 'xhigh' } }] },
 ] as const)('buildTargetRequest rejects OpenAI-Responses-only $name input', async ({ name, input }) => {
   await assertRejects(
     () => buildTargetRequest({ ...minimalPayload, input: [...input] }),
@@ -98,6 +99,14 @@ test.each([
 });
 
 test('buildTargetRequest wires OpenAI Responses tooling guards', async () => {
+  await assertRejects(
+    () => buildTargetRequest({
+      ...minimalPayload,
+      input: [{ type: 'function_call', name: 'lookup', call_id: 'pending', arguments: '{}', status: 'completed', async: true }],
+    }),
+    Error,
+    'asynchronous',
+  );
   await assertRejects(
     () => buildTargetRequest({
       ...minimalPayload,
