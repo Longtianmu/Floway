@@ -836,6 +836,44 @@ describe('callCodexOpenAIResponses — upstream classification', () => {
     expect(headers.get('session-id')).toBe('header-session');
   });
 
+  test.each([
+    { status: 400, contentType: 'application/json', body: ' {"error":{"type":"invalid_request_error","code":"vendor_code","message":"Rejected"}}\n' },
+    { status: 503, contentType: 'text/html; charset=utf-8', body: '<html>Upstream unavailable</html>\n' },
+    { status: 422, contentType: undefined, body: 'Unlabelled upstream error\n' },
+  ])('preserves the upstream $status error media type, headers and bytes', async ({ status, contentType, body }) => {
+    seedFreshAccessToken();
+    const headers = new Headers({ 'x-request-id': 'vendor-error', 'x-vendor-error': 'retained' });
+    if (contentType !== undefined) headers.set('content-type', contentType);
+    const bytes = new TextEncoder().encode(body);
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(bytes, { status, statusText: 'Vendor error', headers }));
+    const result = await callCodexOpenAIResponses({
+      upstreamId, account: activeAccount, model, body: { input: [], stream: true },
+      headers: new Headers(), effects: makeEffects(), call: noopUpstreamCallOptions(),
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('Expected the upstream error response');
+    expect(result.response.status).toBe(status);
+    expect(result.response.statusText).toBe('Vendor error');
+    expect([...result.response.headers]).toEqual([...headers]);
+    expect(new Uint8Array(await result.response.arrayBuffer())).toEqual(bytes);
+  });
+
+  test('accepts a successful Codex SSE stream that omits its media type', async () => {
+    seedFreshAccessToken();
+    const response = sseResponse();
+    response.headers.delete('content-type');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(response);
+    const result = await callCodexOpenAIResponses({
+      upstreamId, account: activeAccount, model, body: { input: [], stream: true },
+      headers: new Headers(), effects: makeEffects(), call: noopUpstreamCallOptions(),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('Expected the successful Codex stream');
+    const received: OpenAIResponsesStreamEvent[] = [];
+    for await (const frame of result.events) if (frame.type === 'event') received.push(frame.event);
+    expect(received).toMatchObject([{ type: 'response.created' }]);
+  });
+
   test('401 token_invalidated → persistTerminalState session_terminated, return 503', async () => {
     seedFreshAccessToken();
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(errorJson(401, { error: { code: 'token_invalidated', message: 'session ended' } }));

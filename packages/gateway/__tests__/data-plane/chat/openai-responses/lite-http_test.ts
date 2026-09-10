@@ -98,6 +98,7 @@ test.each(['/v1/responses', '/v1/responses/compact'])('native Codex Lite %s pres
   }, async () => {
     const response = await requestApp(path, { method: 'POST', headers: { authorization: `Bearer ${apiKey.key}`, 'content-type': 'application/json', [OPENAI_RESPONSES_LITE_HEADER]: 'true' }, body: JSON.stringify({ model: 'gpt-6-astra', input: [{ type: 'additional_tools', role: 'developer', tools: [] }], stream: true }) });
     assertEquals(response.status, 422);
+    assertEquals(response.headers.get('content-type'), 'application/json');
     assertEquals(response.headers.get('x-request-id'), 'upstream-error');
     assertEquals(response.headers.get('x-vendor-error'), 'retained');
     assertEquals(await response.text(), upstreamBody);

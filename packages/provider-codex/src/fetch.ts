@@ -702,9 +702,11 @@ const synthetic503 = (message: string): Response => new Response(JSON.stringify(
 // (observed in production: only x-codex-* + standard CDN headers come back).
 // The shared `streamingProviderCall` rejects 2xx responses lacking the SSE
 // content-type as a contract violation, so we synthesize the header on the
-// way through. Body stream is preserved verbatim.
+// successful path. Errors retain their original media type for downstream
+// error decoding. Body streams are preserved verbatim.
+// https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/codex-api/src/endpoint/responses.rs
 const ensureSseContentType = (response: Response): Response => {
-  if (isEventStreamMediaType(response.headers.get('content-type'))) return response;
+  if (!response.ok || isEventStreamMediaType(response.headers.get('content-type'))) return response;
   const headers = new Headers(response.headers);
   headers.set('content-type', 'text/event-stream');
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
