@@ -207,7 +207,7 @@ const withoutLiteMetadata = (
   return Object.keys(next).length > 0 ? next : undefined;
 };
 
-const isBaseInstructionsMessage = (item: OpenAIResponsesInputItem | undefined): item is OpenAIResponsesInputMessage => {
+export const isOpenAIResponsesLiteBaseInstructionsMessage = (item: OpenAIResponsesInputItem | undefined): boolean => {
   if (item?.type !== 'message' || item.role !== 'developer') return false;
   const kinds = item.internal_chat_message_metadata_passthrough?.content_item_kinds;
   const contentLength = typeof item.content === 'string' ? 1 : item.content.length;
@@ -242,7 +242,7 @@ export const toStandardOpenAIResponsesPayload = (
     input.shift();
   }
   const nextFirst = input[0];
-  if (isBaseInstructionsMessage(nextFirst)) {
+  if (nextFirst?.type === 'message' && isOpenAIResponsesLiteBaseInstructionsMessage(nextFirst)) {
     instructions = instructionsFromMessage(nextFirst);
     input.shift();
   }

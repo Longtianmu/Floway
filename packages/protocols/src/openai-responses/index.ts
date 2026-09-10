@@ -1445,6 +1445,7 @@ export {
   OPENAI_RESPONSES_LITE_HEADER,
   OPENAI_RESPONSES_LITE_WS_METADATA_KEY,
   type OpenAIResponsesLiteConversionOptions,
+  isOpenAIResponsesLiteBaseInstructionsMessage,
   openAIResponsesTransportForEndpoint,
   openAIResponsesTransportForRequest,
   replaceOpenAIResponsesAdditionalTools,

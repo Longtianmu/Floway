@@ -263,6 +263,40 @@ test.each(['generate', 'compact'] as const)('native Responses Lite %s keeps the 
   assertEquals(callOpenAIResponses.mock.calls.length, 1);
 });
 
+test.each(['standard', 'lite'] as const)('Lite role flags preserve leading instructions for a %s source', async sourceTransport => {
+  installRepo();
+  const source = makePayload({
+    instructions: 'Base instructions.',
+    input: [
+      {
+        type: 'message', role: 'developer',
+        content: [{ type: 'input_text', text: 'A base fragment.' }, { type: 'input_text', text: 'Project instructions.' }],
+        internal_chat_message_metadata_passthrough: { content_item_kinds: ['model.base_instructions', 'project.instructions'] },
+      },
+      { type: 'configuration_update', reasoning: { effort: 'high' } },
+      { type: 'message', role: 'system', content: 'Leading system instructions.' },
+      { type: 'message', role: 'user', content: 'Hello.' },
+      { type: 'message', role: 'system', content: 'Later system instructions.' },
+    ],
+  });
+  const callOpenAIResponses = vi.fn(async (_model, body): Promise<ProviderOpenAIResponsesResult> => {
+    assertEquals(body.input[0].type, 'additional_tools');
+    expect(body.input[1]).toMatchObject({ type: 'message', role: 'developer' });
+    assertEquals(body.input[2], { ...source.input[0], role: 'system' });
+    assertEquals(body.input[3], source.input[1]);
+    assertEquals(body.input[4], source.input[2]);
+    assertEquals(body.input[6], { ...source.input[4], role: 'user' });
+    return { action: 'generate', ok: true, events: makeProviderEvents([]), modelKey: 'test-model-key' };
+  });
+  await openaiResponsesAttempt.generate({
+    payload: sourceTransport === 'lite' ? toLiteOpenAIResponsesPayload(source) : source,
+    ctx: makeGatewayCtx(),
+    candidate: makeCandidate(callOpenAIResponses, new Set(['rewrite-developer-to-system', 'rewrite-mid-conv-system-to-user']), { openaiResponses: { transport: 'lite' } }),
+    headers: new Headers(sourceTransport === 'lite' ? { [OPENAI_RESPONSES_LITE_HEADER]: 'true' } : undefined),
+  });
+  assertEquals(callOpenAIResponses.mock.calls.length, 1);
+});
+
 const collectEvents = async (events: AsyncIterable<ProtocolFrame<OpenAIResponsesStreamEvent>>): Promise<OpenAIResponsesStreamEvent[]> => {
   const out: OpenAIResponsesStreamEvent[] = [];
   for await (const frame of events) {
