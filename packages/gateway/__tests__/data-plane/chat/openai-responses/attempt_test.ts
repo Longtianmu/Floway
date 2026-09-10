@@ -149,7 +149,10 @@ test.each([
     strict: false,
   }]);
   if (sourceTransport === 'lite') {
-    expect(capturedInput?.[0].id).not.toEqual(payload.input[0].id);
+    const capturedPrefix = capturedInput?.[0];
+    const sourcePrefix = payload.input[0];
+    assert(capturedPrefix?.type === 'additional_tools' && sourcePrefix.type === 'additional_tools');
+    expect(capturedPrefix.id).not.toEqual(sourcePrefix.id);
     assertEquals(capturedInput?.[1], payload.input[1]);
   }
 });
@@ -196,8 +199,9 @@ test.each(['generate', 'compact'] as const)('native Responses Lite %s preserves 
     instructions: 'Be concise.',
     tools: [{ type: 'function', name: 'lookup', parameters: { type: 'object' }, async: true }],
   }));
-  source.input[0] = { ...source.input[0], id: 'at_client_prefix', vendor_extension: 'keep-tools' };
-  source.input[1] = { ...source.input[1], id: 'msg_client_prefix', vendor_extension: 'keep-instructions' };
+  assert(source.input[0].type === 'additional_tools' && source.input[1].type === 'message');
+  Object.assign(source.input[0], { id: 'at_client_prefix', vendor_extension: 'keep-tools' });
+  Object.assign(source.input[1], { id: 'msg_client_prefix', vendor_extension: 'keep-instructions' });
   const callOpenAIResponses = vi.fn(async (_model, body, actualAction, _signal, opts): Promise<ProviderOpenAIResponsesResult> => {
     assertEquals(actualAction, action);
     assertEquals(opts.headers.get(OPENAI_RESPONSES_LITE_HEADER), 'true');
@@ -231,7 +235,7 @@ test.each(['generate', 'compact'] as const)('native Responses Lite %s keeps the 
   source.input.splice(2, 0, { type: 'message', role: 'developer', content: [{ type: 'input_text', text: 'Project instructions.' }] });
   if (action === 'generate') source.input.push({ type: 'compaction_trigger' });
   const completed = makeOpenAIResponsesResult();
-  const callOpenAIResponses = vi.fn(async (_model, body, actualAction): Promise<ProviderOpenAIResponsesResult> => {
+  const callOpenAIResponses = vi.fn(async (_model, body: Omit<CanonicalOpenAIResponsesPayload, 'model'>, actualAction): Promise<ProviderOpenAIResponsesResult> => {
     assertEquals(actualAction, 'generate');
     const prefix = body.input[0];
     assert(prefix.type === 'additional_tools');

@@ -106,7 +106,9 @@ describe('Responses Lite transport', () => {
 
   test('preserves native Lite prefix identities, chronological controls and open values', () => {
     const lite = toLiteOpenAIResponsesPayload(standard());
-    lite.input[0] = { ...lite.input[0], id: 'at_client_owned' };
+    const prefix = lite.input[0];
+    if (prefix.type !== 'additional_tools') throw new Error('Expected a Lite tool prefix');
+    lite.input[0] = { ...prefix, id: 'at_client_owned' };
     lite.reasoning = { effort: 'ultra', context: 'future_context' };
     lite.input.push({ type: 'additional_tools', role: 'developer', id: 'at_later', tools: [] });
     lite.client_metadata = { [OPENAI_RESPONSES_LITE_WS_METADATA_KEY]: 'true', thread_id: 'client-thread' };
