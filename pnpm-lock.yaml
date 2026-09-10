@@ -10,7 +10,7 @@ overrides:
 
 patchedDependencies:
   '@discoveryjs/json-ext@1.1.0':
-    hash: 445c4286f584dc434c2bdbafa52c3d31d795d02d9a1bf37fa971a9c90a6a8fec
+    hash: 943c28c1f9e36d77e60cd18d0a6ce283b0ad16bc7e002642d0624d96cd54117a
     path: patches/@discoveryjs__json-ext@1.1.0.patch
   '@fluentui/react-charts@9.3.22':
     hash: a8bd95e1c6e43665fa49850716d2bf5e123b05b959f4b88cc83526cbedeeed35
@@ -467,7 +467,7 @@ importers:
     dependencies:
       '@discoveryjs/json-ext':
         specifier: 1.1.0
-        version: 1.1.0(patch_hash=445c4286f584dc434c2bdbafa52c3d31d795d02d9a1bf37fa971a9c90a6a8fec)
+        version: 1.1.0(patch_hash=943c28c1f9e36d77e60cd18d0a6ce283b0ad16bc7e002642d0624d96cd54117a)
       '@floway-dev/http':
         specifier: workspace:*
         version: link:../http
@@ -5511,7 +5511,7 @@ snapshots:
 
   '@ctrl/tinycolor@3.6.1': {}
 
-  '@discoveryjs/json-ext@1.1.0(patch_hash=445c4286f584dc434c2bdbafa52c3d31d795d02d9a1bf37fa971a9c90a6a8fec)': {}
+  '@discoveryjs/json-ext@1.1.0(patch_hash=943c28c1f9e36d77e60cd18d0a6ce283b0ad16bc7e002642d0624d96cd54117a)': {}
 
   '@emnapi/core@1.10.0':
     dependencies:

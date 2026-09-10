@@ -43,8 +43,11 @@ onlyBuiltDependencies:
 # https://github.com/d3/d3/blob/ca958d45217b4c15332d971b935451a6d4c978f4/docs/d3-scale/time.md#L111-L124
 # https://www.w3.org/TR/SVG2/shapes.html#RectElement
 patchedDependencies:
-  # Preserve JSON.stringify's toJSON(key) and boxed primitive contracts when
-  # streaming stored payloads, in both ESM and CommonJS entrypoints.
+  # Split long string values before escaping them, so inline images never need
+  # a complete serialized string copy. Preserve JSON.stringify's toJSON(key)
+  # and boxed primitive contracts when streaming stored payloads. Both fixes
+  # apply to the ESM and CommonJS entrypoints.
+  # https://github.com/discoveryjs/json-ext/blob/457d4d9d4e55bb1e14fde192715114b80e20c4c9/src/stringify-chunked.js
   # https://github.com/discoveryjs/json-ext/blob/457d4d9d4e55bb1e14fde192715114b80e20c4c9/src/utils.js#L12-L35
   # https://tc39.es/ecma262/multipage/structured-data.html#sec-serializejsonproperty
   '@discoveryjs/json-ext@1.1.0': patches/@discoveryjs__json-ext@1.1.0.patch

@@ -5,9 +5,9 @@ import type { ReplayableBody } from './options.ts';
 
 const encodeChunks = function* (chunks: Iterable<string>): Generator<Uint8Array> {
   const encoder = new TextEncoder();
-  // stringifyChunked's highWaterMark does not split an individual string.
-  // Bound each encoded allocation to 48 KiB even for large inline images.
-  // https://github.com/discoveryjs/json-ext/blob/457d4d9d4e55bb1e14fde192715114b80e20c4c9/src/stringify-chunked.js
+  // The dependency patch splits large string values before escaping them.
+  // Escaping can still grow a text chunk; bound each encoded allocation to
+  // 48 KiB and keep UTF-16 surrogate pairs together at byte-chunk boundaries.
   for (const chunk of chunks) {
     for (let start = 0; start < chunk.length;) {
       let end = Math.min(start + 16 * 1024, chunk.length);

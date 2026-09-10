@@ -42,3 +42,127 @@ diff --git a/cjs/utils.cjs b/cjs/utils.cjs
 +                } else if (value instanceof BigInt) {
 +                    value = BigInt.prototype.valueOf.call(value);
                  }
+diff --git a/src/stringify-chunked.js b/src/stringify-chunked.js
+--- a/src/stringify-chunked.js
++++ b/src/stringify-chunked.js
+@@ -24,6 +24,10 @@
+     let stateKeys = [];
+     let stateIndex = 0;
+     let buffer = '';
++    let pendingString = null;
++    let stringOffset = 0;
++    let resumeState = null;
++    const stringChunkSize = Math.max(2, highWaterMark);
+ 
+     for (let i = 0; i < rootCount; i++) {
+         if (rootValue !== null) {
+@@ -46,7 +50,7 @@
+                 yield buffer;
+                 buffer = '';
+             }
+-        } while (prevState !== null);
++        } while (prevState !== null || pendingString !== null);
+     }
+ 
+     function printObject() {
+@@ -137,7 +141,15 @@
+     function pushPrimitive(value) {
+         switch (typeof value) {
+             case 'string':
+-                buffer += encodeString(value);
++                if (value.length <= stringChunkSize) {
++                    buffer += encodeString(value);
++                } else {
++                    pendingString = value;
++                    stringOffset = 0;
++                    resumeState = state;
++                    buffer += '"';
++                    state = printString;
++                }
+                 break;
+ 
+             case 'number':
+@@ -155,6 +167,21 @@
+ 
+             default:
+                 throw new TypeError(`Do not know how to serialize a ${value.constructor?.name || typeof value}`);
++        }
++    }
++
++    function printString() {
++        let end = Math.min(stringOffset + stringChunkSize, pendingString.length);
++        const last = pendingString.charCodeAt(end - 1);
++        const next = pendingString.charCodeAt(end);
++        if (last >= 0xd800 && last <= 0xdbff && next >= 0xdc00 && next <= 0xdfff) end--;
++        buffer += encodeString(pendingString.slice(stringOffset, end)).slice(1, -1);
++        stringOffset = end;
++        if (end === pendingString.length) {
++            buffer += '"';
++            pendingString = null;
++            state = resumeState;
++            resumeState = null;
+         }
+     }
+ 
+diff --git a/cjs/stringify-chunked.cjs b/cjs/stringify-chunked.cjs
+--- a/cjs/stringify-chunked.cjs
++++ b/cjs/stringify-chunked.cjs
+@@ -26,6 +26,10 @@
+     let stateKeys = [];
+     let stateIndex = 0;
+     let buffer = '';
++    let pendingString = null;
++    let stringOffset = 0;
++    let resumeState = null;
++    const stringChunkSize = Math.max(2, highWaterMark);
+ 
+     for (let i = 0; i < rootCount; i++) {
+         if (rootValue !== null) {
+@@ -48,7 +52,7 @@
+                 yield buffer;
+                 buffer = '';
+             }
+-        } while (prevState !== null);
++        } while (prevState !== null || pendingString !== null);
+     }
+ 
+     function printObject() {
+@@ -139,7 +143,15 @@
+     function pushPrimitive(value) {
+         switch (typeof value) {
+             case 'string':
+-                buffer += encodeString(value);
++                if (value.length <= stringChunkSize) {
++                    buffer += encodeString(value);
++                } else {
++                    pendingString = value;
++                    stringOffset = 0;
++                    resumeState = state;
++                    buffer += '"';
++                    state = printString;
++                }
+                 break;
+ 
+             case 'number':
+@@ -157,6 +169,21 @@
+ 
+             default:
+                 throw new TypeError(`Do not know how to serialize a ${value.constructor?.name || typeof value}`);
++        }
++    }
++
++    function printString() {
++        let end = Math.min(stringOffset + stringChunkSize, pendingString.length);
++        const last = pendingString.charCodeAt(end - 1);
++        const next = pendingString.charCodeAt(end);
++        if (last >= 0xd800 && last <= 0xdbff && next >= 0xdc00 && next <= 0xdfff) end--;
++        buffer += encodeString(pendingString.slice(stringOffset, end)).slice(1, -1);
++        stringOffset = end;
++        if (end === pendingString.length) {
++            buffer += '"';
++            pendingString = null;
++            state = resumeState;
++            resumeState = null;
+         }
+     }
+ 
