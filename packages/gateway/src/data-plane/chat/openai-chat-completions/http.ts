@@ -5,7 +5,7 @@ import type { AuthedContext } from '../../../middleware/auth.ts';
 import { backgroundSchedulerFromContext } from '../../../runtime/background.ts';
 import { createGatewayCtxFromHono, finalizeGatewayResponse, type GatewayCtx } from '../../shared/gateway-ctx.ts';
 import { inboundHeaders } from '../../shared/inbound-headers.ts';
-import { readRequestBody, takeRequestBody, type RequestBody } from '../../shared/request-body.ts';
+import { createJsonRequestBody, takeRequestBody, type RequestBody } from '../../shared/request-body.ts';
 import { createNonOpenAIResponsesSourceStore } from '../openai-responses/items/store.ts';
 import { createChatGatewayCtxFromHono, type ChatGatewayCtx } from '../shared/gateway-ctx.ts';
 import { providerModelsUnavailableResponse } from '../shared/upstream-models-error.ts';
@@ -44,10 +44,10 @@ const respondToThrow = async (c: AuthedContext, error: unknown, requestBody: Req
 
 export const openaiChatCompletionsHttp = {
   generate: async (c: AuthedContext): Promise<Response> => {
-    const requestBody = await readRequestBody(c);
+    const requestBody = createJsonRequestBody(c);
     let ctx: ChatGatewayCtx | undefined;
     try {
-      const payload = JSON.parse(new TextDecoder().decode(requestBody.bytes)) as OpenAIChatCompletionsPayload;
+      const payload = await requestBody.json() as OpenAIChatCompletionsPayload;
       const wantsStream = payload.stream === true;
       // Read the caller's intent BEFORE any interceptor mutates
       // `payload.stream_options.include_usage`. Capturing it here means the

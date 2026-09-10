@@ -1,5 +1,8 @@
 import type { Context } from 'hono';
 
+import { apiKeyFromContext, type AuthedContext } from '../../middleware/auth.ts';
+import { parseJsonStream } from '../../shared/json-stream.ts';
+
 // Inbound body bytes the handler reads once and forwards into the dump
 // accumulator (so the handler's payload parser AND the dump see the same
 // bytes without a second read). `streamError` surfaces a client mid-upload
@@ -8,6 +11,35 @@ export interface RequestBody {
   bytes: Uint8Array;
   readonly streamError: string | null;
 }
+
+export interface JsonRequestBody extends RequestBody {
+  json(): Promise<unknown>;
+}
+
+// Chat handlers need the parsed payload, while only Dump needs the original
+// wire bytes. Keep parsing lazy so failures stay inside each protocol's existing
+// error handler and captured bytes remain available to its dump accumulator.
+export const createJsonRequestBody = (c: AuthedContext): JsonRequestBody => {
+  const capture = apiKeyFromContext(c).dumpRetentionSeconds !== null;
+  let streamError: string | null = null;
+  const body: JsonRequestBody = {
+    bytes: new Uint8Array(),
+    get streamError() { return streamError; },
+    async json() {
+      if (!capture) return await parseJsonStream(c.req.raw.body);
+      const captured = await readRequestBody(c);
+      body.bytes = captured.bytes;
+      streamError = captured.streamError;
+      return await parseJsonStream(new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(body.bytes);
+          controller.close();
+        },
+      }));
+    },
+  };
+  return body;
+};
 
 // Transfers the byte buffer into the request context after payload parsing.
 // Async HTTP handlers keep their local RequestBody across the upstream wait;

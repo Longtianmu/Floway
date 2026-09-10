@@ -5,7 +5,7 @@ import type { AuthedContext } from '../../../middleware/auth.ts';
 import { backgroundSchedulerFromContext } from '../../../runtime/background.ts';
 import { finalizeGatewayResponse } from '../../shared/gateway-ctx.ts';
 import { inboundHeaders } from '../../shared/inbound-headers.ts';
-import { readRequestBody, takeRequestBody, type RequestBody } from '../../shared/request-body.ts';
+import { createJsonRequestBody, takeRequestBody, type JsonRequestBody } from '../../shared/request-body.ts';
 import { createNonOpenAIResponsesSourceStore } from '../openai-responses/items/store.ts';
 import { createChatGatewayCtxFromHono, type ChatGatewayCtx } from '../shared/gateway-ctx.ts';
 import type { GeminiGenerateContentContent, GeminiGenerateContentPayload } from '@floway-dev/protocols/gemini-generate-content';
@@ -38,9 +38,9 @@ const parseGeminiGenerateContentCountTokensPayload = (body: unknown): GeminiGene
   return shape.generateContentRequest ?? { contents: shape.contents };
 };
 
-const parseGeminiGenerateContentBodyBytes = <T>(requestBody: RequestBody, project: (body: unknown) => T): T | Response => {
+const parseGeminiGenerateContentBody = async <T>(requestBody: JsonRequestBody, project: (body: unknown) => T): Promise<T | Response> => {
   try {
-    const raw = JSON.parse(new TextDecoder().decode(requestBody.bytes)) as unknown;
+    const raw = await requestBody.json();
     return project(raw);
   } catch (error) {
     return geminiGenerateContentInternalRpcErrorResponse(500, error);
@@ -100,8 +100,8 @@ export const geminiGenerateContentHttp = async (c: AuthedContext): Promise<Respo
 };
 
 const runGeminiGenerateContentGenerate = async (c: AuthedContext, model: string, wantsStream: boolean): Promise<Response> => {
-  const requestBody = await readRequestBody(c);
-  const payload = parseGeminiGenerateContentBodyBytes(requestBody, body => body as GeminiGenerateContentPayload);
+  const requestBody = createJsonRequestBody(c);
+  const payload = await parseGeminiGenerateContentBody(requestBody, body => body as GeminiGenerateContentPayload);
   if (payload instanceof Response) return payload;
 
   const ctx = createChatGatewayCtxFromHono(c, { wantsStream, requestBody: takeRequestBody(requestBody), model, backgroundScheduler: backgroundSchedulerFromContext(c) }, apiKey => createNonOpenAIResponsesSourceStore(apiKey.id));
@@ -115,8 +115,8 @@ const runGeminiGenerateContentGenerate = async (c: AuthedContext, model: string,
 };
 
 const runGeminiGenerateContentCountTokens = async (c: AuthedContext, model: string): Promise<Response> => {
-  const requestBody = await readRequestBody(c);
-  const payload = parseGeminiGenerateContentBodyBytes(requestBody, parseGeminiGenerateContentCountTokensPayload);
+  const requestBody = createJsonRequestBody(c);
+  const payload = await parseGeminiGenerateContentBody(requestBody, parseGeminiGenerateContentCountTokensPayload);
   if (payload instanceof Response) return payload;
 
   const ctx = createChatGatewayCtxFromHono(c, { wantsStream: false, requestBody: takeRequestBody(requestBody), model, backgroundScheduler: backgroundSchedulerFromContext(c) }, apiKey => createNonOpenAIResponsesSourceStore(apiKey.id));

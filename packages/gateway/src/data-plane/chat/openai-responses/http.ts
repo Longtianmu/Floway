@@ -7,7 +7,7 @@ import type { AuthedContext } from '../../../middleware/auth.ts';
 import { backgroundSchedulerFromContext } from '../../../runtime/background.ts';
 import { createGatewayCtxFromHono, finalizeGatewayResponse, type GatewayCtx } from '../../shared/gateway-ctx.ts';
 import { inboundHeaders } from '../../shared/inbound-headers.ts';
-import { readRequestBody, takeRequestBody, type RequestBody } from '../../shared/request-body.ts';
+import { createJsonRequestBody, takeRequestBody, type JsonRequestBody, type RequestBody } from '../../shared/request-body.ts';
 import { settle } from '../../shared/telemetry/settle.ts';
 import { createChatGatewayCtxFromHono, type ChatGatewayCtx } from '../shared/gateway-ctx.ts';
 import { providerModelsUnavailableResponse } from '../shared/upstream-models-error.ts';
@@ -67,15 +67,15 @@ const respondToThrow = async (c: AuthedContext, error: unknown, requestBody: Req
   return await respondWithInternalError(c, error, requestBody, ctx);
 };
 
-const parsePayload = (requestBody: RequestBody): CanonicalOpenAIResponsesPayload =>
-  canonicalizeOpenAIResponsesPayload(JSON.parse(new TextDecoder().decode(requestBody.bytes)) as OpenAIResponsesRequestPayload);
+const parsePayload = async (requestBody: JsonRequestBody): Promise<CanonicalOpenAIResponsesPayload> =>
+  canonicalizeOpenAIResponsesPayload(await requestBody.json() as OpenAIResponsesRequestPayload);
 
 export const openaiResponsesHttp = {
   generate: async (c: AuthedContext): Promise<Response> => {
-    const requestBody = await readRequestBody(c);
+    const requestBody = createJsonRequestBody(c);
     let ctx: ChatGatewayCtx | undefined;
     try {
-      const payload = parsePayload(requestBody);
+      const payload = await parsePayload(requestBody);
       const wantsStream = payload.stream === true;
       ctx = createChatGatewayCtxFromHono(c, { wantsStream, requestBody: takeRequestBody(requestBody), model: payload.model, backgroundScheduler: backgroundSchedulerFromContext(c) }, (apiKey, requestStartedAt) => createOpenAIResponsesHttpStore(apiKey, requestStartedAt, payload.store ?? undefined));
       const result = await openaiResponsesServe.generate({ payload, ctx, headers: inboundHeaders(c) });
@@ -87,10 +87,10 @@ export const openaiResponsesHttp = {
   },
 
   compact: async (c: AuthedContext): Promise<Response> => {
-    const requestBody = await readRequestBody(c);
+    const requestBody = createJsonRequestBody(c);
     let ctx: ChatGatewayCtx | undefined;
     try {
-      const payload = parsePayload(requestBody);
+      const payload = await parsePayload(requestBody);
       ctx = createChatGatewayCtxFromHono(c, { wantsStream: false, requestBody: takeRequestBody(requestBody), model: payload.model, backgroundScheduler: backgroundSchedulerFromContext(c) }, (apiKey, requestStartedAt) => createOpenAIResponsesHttpStore(apiKey, requestStartedAt, payload.store ?? undefined));
       const result = await openaiResponsesServe.compact({ payload, ctx, headers: inboundHeaders(c) });
       if (result.type === 'result') {

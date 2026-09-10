@@ -7,6 +7,7 @@ import { openaiResponsesServe } from './serve.ts';
 import type { DumpAccumulator } from '../../../dump/accumulator.ts';
 import { apiKeyFromContext, authenticateApiKey, type AuthedContext } from '../../../middleware/auth.ts';
 import { backgroundSchedulerFromContext } from '../../../runtime/background.ts';
+import { parseJsonStream } from '../../../shared/json-stream.ts';
 import { inboundHeaders } from '../../shared/inbound-headers.ts';
 import { takeRequestBody } from '../../shared/request-body.ts';
 import { DOWNSTREAM_KEEP_ALIVE_INTERVAL_MS, type StreamCompletion } from '../../shared/sse.ts';
@@ -175,14 +176,18 @@ const createOpenAIResponsesWebSocketEvents = (c: AuthedContext): OpenAIResponses
     onClose: closeActiveRequest,
     onError: closeActiveRequest,
     onMessage: (event, socket) => {
+      // Clear the queued frame after parsing; retaining the event in this
+      // callback would keep its full image history alive through the turn.
+      const pending = { data: event.data };
       queue = queue
         .then(async () => {
           if (closed) return;
           const abortController = new AbortController();
           activeAbortController = abortController;
           try {
-            await handleClientMessage(c, socket, session, event.data, authenticatedRawKey, abortController, () => closed, sessionScheduler);
+            await handleClientMessage(c, socket, session, pending, authenticatedRawKey, abortController, () => closed, sessionScheduler);
           } finally {
+            pending.data = undefined;
             if (activeAbortController === abortController) activeAbortController = undefined;
           }
         })
@@ -206,7 +211,7 @@ const handleClientMessage = async (
   c: AuthedContext,
   socket: OpenAIResponsesWebSocketSocket,
   session: ReturnType<typeof createOpenAIResponsesWsSession>,
-  data: unknown,
+  pending: { data: unknown },
   authenticatedRawKey: string,
   downstreamAbortController: AbortController,
   isClosed: () => boolean,
@@ -243,11 +248,6 @@ const handleClientMessage = async (
   };
 
   try {
-    // Capture raw frame bytes up front so they're available as the dump's
-    // request body when `ctx` is constructed below. Payloads that fail to
-    // parse never reach ctx construction, so no dump record is emitted for
-    // them — there is no api-key-scoped turn to attribute them to.
-    const requestBody = { bytes: wsDataToBytes(data), streamError: null };
     if (!(await authenticateApiKey(c, authenticatedRawKey))) {
       turnFailure.fail(401, {
         type: 'authentication_error',
@@ -256,12 +256,7 @@ const handleClientMessage = async (
       });
       return;
     }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(new TextDecoder().decode(requestBody.bytes)) as unknown;
-    } catch (cause) {
-      throw new WebSocketClientMessageError(`WebSocket message must be valid JSON: ${cause instanceof Error ? cause.message : String(cause)}`);
-    }
+    const { parsed, requestBody } = await parseClientFrame(pending, apiKeyFromContext(c).dumpRetentionSeconds !== null);
     eventId = parsed && typeof parsed === 'object' && typeof (parsed as { event_id?: unknown }).event_id === 'string'
       ? (parsed as { event_id: string }).event_id
       : undefined;
@@ -349,6 +344,28 @@ const handleClientMessage = async (
 };
 
 class WebSocketClientMessageError extends Error {}
+
+const parseClientFrame = async (pending: { data: unknown }, captureBytes: boolean) => {
+  const data = pending.data;
+  pending.data = undefined;
+  // Text frames already contain decoded JSON. Only dumps need a wire-byte
+  // copy; binary frames use the bounded decoder shared with HTTP uploads.
+  const bytes = typeof data === 'string' && !captureBytes ? new Uint8Array() : wsDataToBytes(data);
+  const requestBody = { bytes: captureBytes ? bytes : new Uint8Array(), streamError: null };
+  try {
+    const parsed: unknown = typeof data === 'string'
+      ? JSON.parse(data.charCodeAt(0) === 0xfeff ? data.slice(1) : data)
+      : await parseJsonStream(new ReadableStream({
+          start(controller) {
+            controller.enqueue(bytes);
+            controller.close();
+          },
+        }));
+    return { parsed, requestBody };
+  } catch (cause) {
+    throw new WebSocketClientMessageError(`WebSocket message must be valid JSON: ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
+  }
+};
 
 const wsDataToBytes = (data: unknown): Uint8Array => {
   if (typeof data === 'string') return new TextEncoder().encode(data);

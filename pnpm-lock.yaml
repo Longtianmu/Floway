@@ -375,6 +375,9 @@ importers:
       jsonrepair:
         specifier: ^3.14.0
         version: 3.14.0
+      jsonriver:
+        specifier: 1.1.1
+        version: 1.1.1
       klona:
         specifier: 2.0.6
         version: 2.0.6
@@ -4009,6 +4012,9 @@ packages:
   jsonrepair@3.14.0:
     resolution: {integrity: sha512-tWPGKMZf/8UPim+fcW2EfcQ/d/7aKUrP6IECz9G3Tu6Q5dX0orSleqJ9z6sSw7qrQkjF8/Edo4DvsWBZ8H+HNg==}
     hasBin: true
+
+  jsonriver@1.1.1:
+    resolution: {integrity: sha512-w/y/ZvC0YlJxRjySXt6hEji3RltOLAbSiDe3jlWekbIT7qLIOJF+tGNscwTWJZhoNQzi1dItJVMM2jEPZbHSEQ==}
 
   jsx-ast-utils@3.3.5:
     resolution: {integrity: sha512-ZZow9HBI5O6EPgSJLUb8n2NKgmVWTwCvHGwFuJlMjvLFqlGG6pjirPhtdsseaLZjSibD8eegzmYpUZwoIlj2cQ==}
@@ -9231,6 +9237,8 @@ snapshots:
   jsonc-parser@3.3.1: {}
 
   jsonrepair@3.14.0: {}
+
+  jsonriver@1.1.1: {}
 
   jsx-ast-utils@3.3.5:
     dependencies:

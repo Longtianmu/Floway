@@ -175,6 +175,62 @@ const completeOpenAIResponsesTurn = async (
   await waitForMicrotasks();
 };
 
+test.each(['text', 'binary', 'bom'] as const)('Codex WebSocket preserves ten images across stateless %s turns without encoding the full text frame', async format => {
+  const { apiKey, repo } = await setupAppTest();
+  await repo.apiKeys.save({ ...apiKey, dumpRetentionSeconds: null, openaiResponsesRetentionSeconds: 0 });
+  await repo.upstreams.save(buildCodexUpstreamRecord());
+  const images = Array.from({ length: 10 }, (_, index) => `data:image/png;base64,${String(index).repeat(64 * 1024)}`);
+  let upstreamTurns = 0;
+  await withMockedFetch(async request => {
+    const url = new URL(request.url);
+    if (url.hostname === 'update.code.visualstudio.com') return jsonResponse(['1.110.1']);
+    if (url.pathname === '/copilot_internal/v2/token') {
+      return jsonResponse({ token: 'copilot-access-token', expires_at: 4102444800, refresh_in: 3600, endpoints: { api: 'https://api.individual.githubcopilot.com' } });
+    }
+    if (url.pathname === '/models') return jsonResponse(copilotModels([]));
+    if (url.pathname === '/backend-api/codex/models') return jsonResponse(codexModels([{ slug: 'gpt-5.4' }]));
+    if (url.pathname === '/backend-api/codex/responses') {
+      const payload = await request.json() as { input: { content?: { type: string; image_url?: string }[] }[] };
+      const actualImages = payload.input.flatMap(item => item.content ?? []).filter(item => item.type === 'input_image').map(item => item.image_url);
+      assertEquals(actualImages, images);
+      return sseOpenAIResponsesResponse({
+        id: `resp_images_${++upstreamTurns}`, object: 'response', model: 'gpt-5.4', status: 'completed', output: [],
+      });
+    }
+    throw new Error(`Unhandled fetch ${request.url}`);
+  }, async () => await withWorkerWebSocketRuntime(async () => {
+    const socket = await connectOpenAIResponsesWebSocket(apiKey.key);
+    try {
+      let previousResponseId: string | undefined;
+      for (let turn = 0; turn < 3; turn++) {
+        const frame = JSON.stringify({
+          type: 'response.create', model: 'gpt-5.4', store: false,
+          previous_response_id: previousResponseId,
+          input: turn === 0
+            ? [{ type: 'message', role: 'user', content: images.map(image_url => ({ type: 'input_image', image_url })) }]
+            : [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Keep comparing 中文😀' }] }],
+        });
+        const wire = format === 'binary' ? new TextEncoder().encode(frame) : format === 'bom' ? `\ufeff${frame}` : frame;
+        const encode = vi.spyOn(TextEncoder.prototype, 'encode');
+        try {
+          const received = waitForMessages(socket, messages => messages.some(isTerminalResponseEvent), 5_000);
+          assertExists(socket.peer);
+          socket.peer.dispatchEvent(new MessageEvent('message', { data: wire }));
+          previousResponseId = terminalResponseId(await received);
+          if (turn === 0) {
+            assert(encode.mock.calls.every(([text]) => (text?.length ?? 0) < frame.length), 'Floway must not re-encode the complete inbound image history');
+          }
+        } finally {
+          encode.mockRestore();
+        }
+      }
+      assertEquals(upstreamTurns, 3);
+    } finally {
+      socket.close();
+    }
+  }));
+});
+
 test('OpenAI Responses WebSocket forwards stream events, echoes event_id, and ends the turn on the terminal event', async () => {
   const { apiKey } = await setupAppTest();
   await withMockedFetch(

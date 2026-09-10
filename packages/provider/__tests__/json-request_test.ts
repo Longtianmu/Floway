@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 
 import { jsonRequestBody } from '../src/json-request.ts';
 
@@ -33,6 +33,55 @@ test('streams a multi-image document without coalescing the complete payload', a
 
   expect(output).toBe(JSON.stringify(value));
   expect(Math.max(...chunks.map(chunk => chunk.byteLength))).toBeLessThan(body.contentLength / 2);
+});
+
+test('bounds encoded chunks for a single large image string', async () => {
+  const value = { image: `data:image/png;base64,${'A'.repeat(4 * 1024 * 1024)}` };
+  const body = jsonRequestBody(value);
+  const chunks = await readChunks(body);
+
+  expect(Math.max(...chunks.map(chunk => chunk.byteLength))).toBeLessThanOrEqual(48 * 1024);
+  expect(chunks.reduce((length, chunk) => length + chunk.byteLength, 0)).toBe(body.contentLength);
+  expect(await new Response(body.open()).text()).toBe(JSON.stringify(value));
+});
+
+test('measures large request bodies using one reusable encoding buffer', () => {
+  const value = {
+    image: `data:image/png;base64,${'A'.repeat(4 * 1024 * 1024)}`,
+    unicode: `${'中文😀'.repeat(20 * 1024)}\ud800`,
+    exponent: 1e21,
+  };
+  const expectedLength = new TextEncoder().encode(JSON.stringify(value)).byteLength;
+  const encode = vi.spyOn(TextEncoder.prototype, 'encode');
+  const encodeInto = vi.spyOn(TextEncoder.prototype, 'encodeInto');
+  try {
+    const body = jsonRequestBody(value);
+    const buffers = new Set(encodeInto.mock.calls.map(([, buffer]) => buffer));
+
+    expect(body.contentLength).toBe(expectedLength);
+    expect(encode.mock.calls.length).toBe(0);
+    expect(encodeInto.mock.calls.length).toBeGreaterThan(1);
+    expect(buffers.size).toBe(1);
+    expect([...buffers][0]?.byteLength).toBeLessThanOrEqual(48 * 1024);
+  } finally {
+    encode.mockRestore();
+    encodeInto.mockRestore();
+  }
+});
+
+test.each([-1, 0, 1])('preserves Unicode at an encoding boundary with offset %s', async offset => {
+  const value = {
+    image: `${'中'.repeat(16 * 1024 - '{"image":"'.length - 1 + offset)}😀${'中'.repeat(32 * 1024)}\ud800`,
+  };
+  const expected = JSON.stringify(value);
+  const body = jsonRequestBody(value);
+  const chunks = await readChunks(body);
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+
+  expect(chunks.map(chunk => decoder.decode(chunk)).join('')).toBe(expected);
+  expect(Math.max(...chunks.map(chunk => chunk.byteLength))).toBeLessThanOrEqual(48 * 1024);
+  expect(body.contentLength).toBe(new TextEncoder().encode(expected).byteLength);
+  expect(chunks.reduce((length, chunk) => length + chunk.byteLength, 0)).toBe(body.contentLength);
 });
 
 test('rejects circular request values before dispatch', () => {
