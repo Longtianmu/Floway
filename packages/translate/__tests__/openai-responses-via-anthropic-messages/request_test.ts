@@ -689,6 +689,42 @@ test('buildTargetRequest gives a schema-less function tool the empty object sche
   ]);
 });
 
+test('namespace aliases and collision suffixes stay within the Anthropic name limit while retaining both identities', async () => {
+  const namespace = 'n'.repeat(64);
+  const namePrefix = 't'.repeat(63);
+  const functionName = `${namePrefix}a`;
+  const customName = `${namePrefix}b`;
+  const firstAlias = `${namespace}_${namePrefix}`;
+  const secondAlias = `${firstAlias.slice(0, 126)}_2`;
+  const result = await buildTargetRequest({
+    model: 'claude-test',
+    tools: [{ type: 'namespace', name: namespace, description: 'Long tool names', tools: [
+      { type: 'function', name: functionName, parameters: { type: 'object' } },
+      { type: 'custom', name: customName },
+    ] }],
+    tool_choice: { type: 'custom', name: `${namespace}.${customName}` },
+    input: [
+      { type: 'function_call', namespace, name: functionName, call_id: 'call_long_function', arguments: '{}' },
+      { type: 'custom_tool_call', namespace, name: customName, call_id: 'call_long_custom', input: 'PATCH' },
+    ],
+  });
+
+  assertEquals(result.target.tools?.map(tool => tool.name), [firstAlias, secondAlias]);
+  assertEquals(result.target.tool_choice, { type: 'tool', name: secondAlias });
+  const history = result.target.messages[0].content;
+  assert(Array.isArray(history));
+  assertEquals(history.map(block => block.type === 'tool_use' ? block.name : undefined), [firstAlias, secondAlias]);
+  assertEquals(result.namespaceToolNames.sourceToTarget, new Map([
+    [`${namespace}.${functionName}`, firstAlias],
+    [`${namespace}.${customName}`, secondAlias],
+  ]));
+  assertEquals(result.namespaceToolNames.targetToSource, new Map([
+    [firstAlias, { namespace, name: functionName }],
+    [secondAlias, { namespace, name: customName }],
+  ]));
+  assertEquals(result.customToolNames, new Set([secondAlias]));
+});
+
 test('buildTargetRequest keeps plain-text function_call_output as string content', async () => {
   const result = await buildTargetRequest({
     model: 'claude-test',

@@ -2,6 +2,7 @@ import type { Context } from 'hono';
 
 import { wrapOpenAIResponsesClientEgress } from './client-output.ts';
 import { createOpenAIResponsesWsSession } from './items/store.ts';
+import { prewarmOpenAIResponses } from './prewarm.ts';
 import { PreviousResponseNotFoundError } from './serve-prep.ts';
 import { openaiResponsesServe } from './serve.ts';
 import type { DumpAccumulator } from '../../../dump/accumulator.ts';
@@ -78,7 +79,7 @@ declare const WebSocketPair: {
 type OpenAIResponsesWebSocketClientEvent = Partial<OpenAIResponsesRequestPayload> & {
   type: string;
   event_id?: string;
-  response?: Partial<OpenAIResponsesRequestPayload>;
+  response?: Partial<OpenAIResponsesRequestPayload> & { generate?: unknown };
   [key: string]: unknown;
 };
 
@@ -278,7 +279,11 @@ const handleClientMessage = async (
     const source = message.response && typeof message.response === 'object'
       ? message.response
       : Object.fromEntries(Object.entries(message).filter(([key]) => key !== 'type' && key !== 'event_id'));
-    const payload = openaiResponsesPayloadFromClientSource(source);
+    const { generate, ...requestSource } = source;
+    if (generate !== undefined && typeof generate !== 'boolean') {
+      throw new TranslatorInputError('WebSocket generate must be a boolean.', { param: 'generate', code: 'invalid_value' });
+    }
+    const payload = openaiResponsesPayloadFromClientSource(requestSource);
     previousResponseId = payload.previous_response_id ?? undefined;
     ctx = createChatGatewayCtxFromHono(c, {
       wantsStream: true,
@@ -294,7 +299,25 @@ const handleClientMessage = async (
 
     let result;
     try {
-      result = await openaiResponsesServe.generate({ payload, ctx, headers: inboundHeaders(c) });
+      if (generate === false) {
+        const warmed = await prewarmOpenAIResponses({ payload, ctx, headers: inboundHeaders(c) });
+        if (warmed.kind === 'prepared') {
+          if (signal.aborted || isClosed()) return;
+          for (const event of warmed.events) {
+            ctx.dump?.frame({ type: 'event', event });
+            if (!sendOpenAIResponsesEvent(socket, event, eventId, ctx.dump)) {
+              ctx.dump?.failed('WebSocket closed during prewarm');
+              ctx.dump?.finalize(499, []);
+              return;
+            }
+          }
+          ctx.dump?.finalize(200, []);
+          return;
+        }
+        result = warmed.result;
+      } else {
+        result = await openaiResponsesServe.generate({ payload, ctx, headers: inboundHeaders(c) });
+      }
     } catch (error) {
       if (signal.aborted || isClosed()) return;
       // The HTTP entry renders this verbatim envelope as a 400; WS surfaces the

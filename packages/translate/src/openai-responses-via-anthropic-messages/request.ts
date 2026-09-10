@@ -309,8 +309,13 @@ const translateOpenAIResponsesInput = async (
   return { messages, systemBlocks };
 };
 
+// Generated namespace aliases must fit Anthropic's tool name contract, including
+// any collision suffix. Ordinary tool names remain owned by the upstream.
+// https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools#specifying-client-tools
+const ANTHROPIC_TOOL_NAME_MAX_LENGTH = 128;
+
 const namespaceTargetName = (namespace: string, tool: string): string =>
-  `${namespace}_${tool}`.replaceAll(/[^a-zA-Z0-9_-]/g, '_');
+  `${namespace}_${tool}`.replaceAll(/[^a-zA-Z0-9_-]/g, '_').slice(0, ANTHROPIC_TOOL_NAME_MAX_LENGTH);
 
 const uniqueToolName = (preferred: string, reserved: Set<string>): string => {
   if (!reserved.has(preferred)) {
@@ -318,7 +323,8 @@ const uniqueToolName = (preferred: string, reserved: Set<string>): string => {
     return preferred;
   }
   for (let suffix = 2; ; suffix++) {
-    const candidate = `${preferred}_${suffix}`;
+    const ending = `_${suffix}`;
+    const candidate = `${preferred.slice(0, ANTHROPIC_TOOL_NAME_MAX_LENGTH - ending.length)}${ending}`;
     if (!reserved.has(candidate)) {
       reserved.add(candidate);
       return candidate;
