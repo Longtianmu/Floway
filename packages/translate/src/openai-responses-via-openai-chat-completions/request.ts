@@ -278,6 +278,9 @@ export const buildTargetRequest = (source: OpenAIResponsesRequestPayload): Targe
     }
 
     if (item.type === 'function_call_output') {
+      if (typeof item.call_id !== 'string' || item.call_id.length === 0) {
+        throw new TranslatorInputError('Cannot translate function_call_output without call_id to OpenAI Chat Completions.');
+      }
       flushAssistant();
       const projected = projectFunctionCallOutput(item);
       messages.push({

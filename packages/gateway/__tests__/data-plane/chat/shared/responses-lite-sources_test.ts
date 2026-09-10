@@ -21,7 +21,7 @@ const standardPayload = (): CanonicalOpenAIResponsesPayload => ({
   instructions: 'Use the lookup tool.',
   tools: [
     { type: 'function', name: 'research_lookup', parameters },
-    { type: 'namespace', name: 'research', tools: [{ type: 'function', name: 'lookup', parameters }] },
+    { type: 'namespace', name: 'research', description: 'Research tools', tools: [{ type: 'function', name: 'lookup', parameters }] },
   ],
   tool_choice: { type: 'function', name: 'research.lookup' },
   input: [
@@ -143,7 +143,7 @@ for (const target of targets) {
       expect(source.headers.get(OPENAI_RESPONSES_LITE_HEADER)).toBe(profile === 'lite HTTP' ? 'true' : null);
     });
 
-    for (const unsupported of ['async declaration', 'async history', 'configuration_update'] as const) {
+    for (const unsupported of ['async declaration', 'async history', 'configuration_update', 'named output without call_id'] as const) {
       test(`${profile} Responses rejects ${unsupported} before calling ${target}`, async () => {
         initRepo(new InMemoryRepo());
         let calls = 0;
@@ -154,12 +154,13 @@ for (const target of targets) {
         const candidate = stubModelCandidate({ model: { endpoints: { [target]: {} } } });
         candidate.provider.instance = provider;
         const standard = standardPayload();
-        if (unsupported === 'async declaration') standard.tools = [{ type: 'namespace', name: 'research', tools: [{ type: 'function', name: 'lookup', parameters, async: true }] }];
-        if (unsupported === 'async history') standard.input.push({ type: 'function_call_output', call_id: 'call_pending', output: 'Finished later.', async: true });
+        if (unsupported === 'async declaration') standard.tools = [{ type: 'namespace', name: 'research', description: 'Research tools', tools: [{ type: 'function', name: 'lookup', parameters, async: true }] }];
+        if (unsupported === 'async history') standard.input.push({ type: 'function_call', call_id: 'call_pending', namespace: 'research', name: 'lookup', arguments: '{}', async: true });
         if (unsupported === 'configuration_update') standard.input.push({ type: 'configuration_update', reasoning: { effort: 'ultra' } });
+        if (unsupported === 'named output without call_id') standard.input.push({ type: 'function_call_output', namespace: 'research', name: 'lookup', output: 'Finished.', internal_chat_message_metadata_passthrough: { source: 'client' } });
         const promise = openaiResponsesAttempt.generate({ ...sourceRequest(profile, standard), candidate, ctx: mockChatGatewayCtx({ wantsStream: true }) });
         await expect(promise).rejects.toBeInstanceOf(TranslatorInputError);
-        await expect(promise).rejects.toThrow(unsupported === 'configuration_update' ? 'configuration_update' : /asynchronous/i);
+        await expect(promise).rejects.toThrow(unsupported === 'configuration_update' ? 'configuration_update' : unsupported === 'named output without call_id' ? 'without call_id' : /asynchronous/i);
         expect(calls).toBe(0);
       });
     }

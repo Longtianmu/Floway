@@ -254,7 +254,13 @@ export interface OpenAIResponsesFunctionToolCallItem {
 export interface OpenAIResponsesFunctionCallOutputItem {
   type: 'function_call_output';
   id?: string;
-  call_id: string;
+  // Codex also serializes named tool outputs without a call id. Native
+  // Responses preserves that shape; synchronous translators require an id.
+  // https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/protocol/src/models.rs#L1082-L1102
+  call_id?: string;
+  name?: string;
+  namespace?: string;
+  internal_chat_message_metadata_passthrough?: Record<string, unknown>;
   // Multimodal tool outputs carry an array of content parts (e.g. a screenshot
   // tool returning `input_image` parts) in addition to the plain-string form.
   output: string | OpenAIResponsesToolOutputContent[];

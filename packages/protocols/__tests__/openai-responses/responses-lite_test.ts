@@ -163,6 +163,18 @@ describe('Responses Lite transport', () => {
       .toThrow(OpenAIResponsesLiteInputError);
   });
 
+  test('preserves named tool outputs without call ids across native Lite forwarding', () => {
+    const payload: CanonicalOpenAIResponsesPayload = {
+      model: 'gpt-6-astra',
+      input: [{
+        type: 'function_call_output', id: 'fco_client', name: 'lookup', namespace: 'research', output: 'Completed.',
+        internal_chat_message_metadata_passthrough: { source: 'client', content_item_kinds: ['tool.result'] },
+      }],
+    };
+    expect(convertOpenAIResponsesTransport(payload, 'lite', 'lite')).toEqual(payload);
+    expect(convertOpenAIResponsesTransport(payload, 'standard', 'lite').input.at(-1)).toEqual(payload.input[0]);
+  });
+
   test('preserves remote images in both function and custom tool outputs', () => {
     const image = { type: 'input_image' as const, image_url: 'https://example.com/tool.png', detail: 'original' as const };
     const input: CanonicalOpenAIResponsesPayload['input'] = [

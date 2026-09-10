@@ -254,6 +254,9 @@ const translateOpenAIResponsesInput = async (
       break;
     }
     case 'function_call_output':
+      if (typeof item.call_id !== 'string' || item.call_id.length === 0) {
+        throw new TranslatorInputError('Cannot translate function_call_output without call_id to Anthropic Messages.');
+      }
       appendUserBlock(messages, {
         type: 'tool_result',
         tool_use_id: item.call_id,
