@@ -165,10 +165,13 @@ test('generate translates through OpenAI Responses when targetApi is responses',
 test.each(['generate', 'countTokens'] as const)('%s preserves source image history while cleaning the attempt payload', async action => {
   installRepo();
   const payload = makePayload({
-    contents: [{ role: 'user', parts: [{
-      inlineData: { mimeType: 'image/png', data: 'AAAA' },
-      fileData: { mimeType: 'image/png', fileUri: 'https://example.com/image.png' },
-    }] }],
+    contents: [{
+      role: 'user',
+      parts: [{
+        inlineData: { mimeType: 'image/png', data: 'AAAA' },
+        fileData: { mimeType: 'image/png', fileUri: 'https://example.com/image.png' },
+      }],
+    }],
   });
   const original = JSON.stringify(payload);
   let upstreamBody: Record<string, unknown> | undefined;
