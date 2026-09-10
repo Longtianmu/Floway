@@ -7,7 +7,14 @@ import { assertEquals, assertExists, jsonResponse, withMockedFetch } from '@flow
 
 const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/wEAAAAASUVORK5CYII=';
 
-const saveAzureImages = async (repo: InMemoryRepo): Promise<void> => {
+// https://developers.openai.com/api/docs/guides/image-generation
+const imageModels = [
+  { model: 'gpt-image-2', quality: 'high', size: '1024x1024', output_format: 'png' },
+  { model: 'gpt-image-2.5-sunburst', quality: 'max', size: '1536x864', output_format: 'webp' },
+  { model: 'gpt-image-2.5-flare', quality: 'xhigh', size: '1536x864', output_format: 'webp' },
+] as const;
+
+const saveAzureImages = async (repo: InMemoryRepo, model = 'gpt-image-2'): Promise<void> => {
   await repo.upstreams.save({
     id: 'az-image',
     kind: 'azure',
@@ -26,7 +33,7 @@ const saveAzureImages = async (repo: InMemoryRepo): Promise<void> => {
       endpoint: 'https://example.openai.azure.com/openai/v1',
       apiKey: 'azkey',
       models: [{
-        upstreamModelId: 'gpt-image-2',
+        upstreamModelId: model,
         endpoints: { openaiImagesGenerations: {}, openaiImagesEdits: {} },
       }],
     },
@@ -78,9 +85,9 @@ const controlPlaneFetch = (request: Request): Response | undefined => {
   return undefined;
 };
 
-test('Codex provider-relative image generation reuses the public image-generation handler', async () => {
+test.each(imageModels)('Codex provider-relative $model generation preserves configured image parameters', async imageConfig => {
   const { apiKey, repo } = await setupAppTest();
-  await saveAzureImages(repo);
+  await saveAzureImages(repo, imageConfig.model);
   let observedUrl: string | undefined;
   let observedBody: Record<string, unknown> | undefined;
 
@@ -100,7 +107,7 @@ test('Codex provider-relative image generation reuses the public image-generatio
       const response = await requestApp('/azure-api.codex/images/generations', {
         method: 'POST',
         headers: { authorization: `Bearer ${apiKey.key}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ model: 'gpt-image-2', prompt: 'a fox in space', quality: 'high' }),
+        body: JSON.stringify({ ...imageConfig, prompt: 'a fox in space' }),
       });
       assertEquals(response.status, 200);
       assertEquals(await response.json(), { data: [{ b64_json: 'aGk=' }] });
@@ -109,8 +116,7 @@ test('Codex provider-relative image generation reuses the public image-generatio
 
   assertEquals(observedUrl?.endsWith('/images/generations?api-version=preview'), true);
   assertExists(observedBody);
-  assertEquals(observedBody.prompt, 'a fox in space');
-  assertEquals(observedBody.quality, 'high');
+  assertEquals(observedBody, { ...imageConfig, prompt: 'a fox in space' });
 });
 
 test('ChatGPT Codex accounts expose and serve the implicit gpt-image-2 model', async () => {
@@ -160,9 +166,9 @@ test('ChatGPT Codex accounts expose and serve the implicit gpt-image-2 model', a
   assertEquals(observedBody, { model: 'gpt-image-2', prompt: 'an orange circle', quality: 'low' });
 });
 
-test('Codex provider-relative image edits reuse the public JSON handler', async () => {
+test.each(imageModels)('Codex provider-relative $model edits preserve configured image parameters', async imageConfig => {
   const { apiKey, repo } = await setupAppTest();
-  await saveAzureImages(repo);
+  await saveAzureImages(repo, imageConfig.model);
   let observedUrl: string | undefined;
   let observedBody: Record<string, unknown> | undefined;
 
@@ -183,9 +189,8 @@ test('Codex provider-relative image edits reuse the public JSON handler', async 
         method: 'POST',
         headers: { authorization: `Bearer ${apiKey.key}`, 'content-type': 'application/json' },
         body: JSON.stringify({
-          model: 'gpt-image-2',
+          ...imageConfig,
           prompt: 'add a red hat',
-          quality: 'high',
           images: [
             { image_url: 'https://assets.example/image.png' },
           ],
@@ -199,16 +204,15 @@ test('Codex provider-relative image edits reuse the public JSON handler', async 
   assertEquals(observedUrl?.endsWith('/images/edits?api-version=preview'), true);
   assertExists(observedBody);
   assertEquals(observedBody, {
-    model: 'gpt-image-2',
+    ...imageConfig,
     prompt: 'add a red hat',
-    quality: 'high',
     images: [{ image_url: 'https://assets.example/image.png' }],
   });
 });
 
-test('Codex inline data URL edits egress as multipart uploads', async () => {
+test.each(imageModels)('Codex $model inline data URL edits preserve parameters in multipart uploads', async imageConfig => {
   const { apiKey, repo } = await setupAppTest();
-  await saveAzureImages(repo);
+  await saveAzureImages(repo, imageConfig.model);
   let observedForm: FormData | undefined;
 
   await withMockedFetch(
@@ -226,7 +230,7 @@ test('Codex inline data URL edits egress as multipart uploads', async () => {
         method: 'POST',
         headers: { authorization: `Bearer ${apiKey.key}`, 'content-type': 'application/json' },
         body: JSON.stringify({
-          model: 'gpt-image-2',
+          ...imageConfig,
           prompt: 'add a red hat',
           images: [{ image_url: `data:image/png;base64,${PNG_B64}` }],
         }),
@@ -236,6 +240,7 @@ test('Codex inline data URL edits egress as multipart uploads', async () => {
   );
 
   assertExists(observedForm);
+  for (const [key, value] of Object.entries(imageConfig)) assertEquals(observedForm.get(key), value);
   const image = observedForm.get('image');
   assertEquals(image instanceof File, true);
   assertEquals((image as File).type, 'image/png');
