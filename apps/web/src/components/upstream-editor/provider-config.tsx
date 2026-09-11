@@ -433,6 +433,19 @@ function CopilotConfig({ record, onPatch }: {
 }
 
 type OAuthKind = 'codex' | 'claude-code';
+function CodexInstallationSetting() {
+  const { control } = useFormContext<ValuesForKind<'codex'>>();
+  const { t } = useTranslation();
+  return <Controller control={control} name="config.normalizeInstallationId" render={({ field }) => (
+    <SwitchSetting
+      checked={field.value === true}
+      description={t('dashboard.upstreamEditor.codex.normalizeInstallationIdHint')}
+      label={t('dashboard.upstreamEditor.codex.normalizeInstallationId')}
+      onChange={field.onChange}
+    />
+  )} />;
+}
+
 function OAuthConfig({ record, onPatch }: {
   record: Extract<UpstreamRecord, { kind: OAuthKind }>;
   onPatch: (patch: { config?: unknown; state?: unknown }, persisted?: boolean) => void;
@@ -553,6 +566,7 @@ function OAuthConfig({ record, onPatch }: {
           probing={probing}
           record={{ ...record, kind: 'claude-code', config: config as Extract<UpstreamRecord, { kind: 'claude-code' }>['config'], state: values.state as Extract<UpstreamRecord, { kind: 'claude-code' }>['state'] }}
         />)}
+    {record.kind === 'codex' && <CodexInstallationSetting />}
     {hasAccount && !isPersisted(record) && <ReadyToSaveHint kind={record.kind} />}
     {hasAccount && <div className="flex flex-wrap items-center gap-2">
       <Button appearance="primary" disabledFocusable={refreshing} icon={refreshing ? <Spinner size="tiny" /> : <ArrowClockwiseRegular />} onClick={() => void refreshCredential()}>

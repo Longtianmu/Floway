@@ -797,6 +797,8 @@ const zhHansCN = {
           waiting: '正在等待授权…',
         },
         codex: {
+          normalizeInstallationId: '设备身份归一化',
+          normalizeInstallationIdHint: '通过此上游的请求统一使用账号已保存的设备 ID，会话和线程保持独立。默认关闭；关闭时优先使用客户端提供的设备 ID。',
           activeLimit: '当前限额',
           credits: '额度：{{balance, number}}',
           noCredits: '无额度',

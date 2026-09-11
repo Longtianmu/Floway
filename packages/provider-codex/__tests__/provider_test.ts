@@ -65,6 +65,65 @@ const modelsResponse = (): Response => new Response(JSON.stringify({
   ],
 }), { status: 200, headers: new Headers({ 'content-type': 'application/json' }) });
 
+test.each(['standard', 'lite', 'compact', 'search'] as const)('upstream device policy reaches %s and keeps client conversations independent', async transport => {
+  const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => transport === 'compact'
+    ? Response.json({ id: 'cmp', object: 'response.compaction', output: [] })
+    : sseResponse());
+  for (const enabled of [undefined, false, true]) {
+    for (const [accountId, deviceId, clientId] of [['acc', 'device-a', 'client-1'], ['acc', 'device-a', 'client-2'], ['other', 'device-b', 'client-1']]) {
+      const account = { ...(recordWithAccessToken().state as CodexUpstreamState).accounts[0], chatgptAccountId: accountId, openaiDeviceId: deviceId };
+      current = {
+        ...recordWithAccessToken(),
+        config: {
+          accounts: [{ email: 'a@b.com', chatgptAccountId: accountId, chatgptUserId: 'usr', planType: 'plus' }],
+          ...(enabled !== undefined ? { normalizeInstallationId: enabled } : {}),
+        },
+        state: { accounts: [account] },
+      };
+      const instance = createCodexProvider(current).instance;
+      const metadata = {
+        installation_id: clientId, session_id: `session-${clientId}`, thread_id: `thread-${clientId}`,
+        turn_id: `turn-${clientId}`, window_id: `thread-${clientId}:3`, parent_thread_id: 'parent',
+        workspaces: { '/home/user/project': { remotes: ['https://example.com/repo'] } },
+      };
+      const body = {
+        input: [], prompt_cache_key: `cache-${clientId}`,
+        client_metadata: {
+          'x-codex-installation-id': clientId,
+          'x-codex-turn-metadata': JSON.stringify(metadata),
+          custom: 'retained',
+        },
+      };
+      const original = structuredClone(body);
+      const headers = new Headers({ 'x-codex-turn-metadata': JSON.stringify(metadata) });
+      if (transport === 'lite') headers.set(OPENAI_RESPONSES_LITE_HEADER, 'true');
+      const options = { ...noopUpstreamCallOptions(), headers };
+      if (transport === 'search') {
+        await instance.callAlphaSearch!(stubProviderModel(), body, undefined, options);
+      } else {
+        const result = await instance.callOpenAIResponses(stubProviderModel(), body, transport === 'compact' ? 'compact' : 'generate', undefined, options);
+        expect(result.ok).toBe(true);
+      }
+      const [, init] = fetchSpy.mock.calls.at(-1)!;
+      const outboundHeaders = new Headers(init?.headers);
+      const turn = JSON.parse(outboundHeaders.get('x-codex-turn-metadata')!) as Record<string, unknown>;
+      const expectedId = enabled === true ? deviceId : clientId;
+      expect(turn).toMatchObject({ ...metadata, installation_id: expectedId });
+      expect(outboundHeaders.get('chatgpt-account-id')).toBe(accountId);
+      const outbound = await readJsonRequest(init as RequestInit) as Record<string, unknown>;
+      if (transport !== 'compact') {
+        const client = outbound.client_metadata as Record<string, unknown>;
+        expect(client['x-codex-installation-id']).toBe(expectedId);
+        expect(JSON.parse(client['x-codex-turn-metadata'] as string)).toMatchObject({ ...metadata, installation_id: expectedId });
+        expect(client.custom).toBe('retained');
+        expect(outbound.prompt_cache_key).toBe(`cache-${clientId}`);
+      }
+      expect(body).toEqual(original);
+      expect((current!.state as CodexUpstreamState).accounts[0].openaiDeviceId).toBe(deviceId);
+    }
+  }
+});
+
 const idToken = (planType = 'plus'): string => [
   Buffer.from('{}').toString('base64url'),
   Buffer.from(JSON.stringify({

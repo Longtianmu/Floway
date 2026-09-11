@@ -840,6 +840,8 @@ const en = {
           waiting: 'Waiting for authorization…',
         },
         codex: {
+          normalizeInstallationId: 'Normalize device identity',
+          normalizeInstallationIdHint: 'Use the account’s saved device ID for requests through this upstream. Sessions and threads stay independent. Off by default; when off, client-provided device IDs take precedence.',
           activeLimit: 'active limit',
           credits: 'credits: {{balance, number}}',
           noCredits: 'no credits',

@@ -388,9 +388,9 @@ export const updateUpstreamBody = z.object({
   hue: upstreamHueSchema.optional(),
   // Patches only carry field diffs, not per-kind shape validation — the
   // handler dispatches on the existing row's kind and enforces the shape
-  // there (Copilot/Codex/Claude Code reject a config patch outright, since
-  // OAuth-managed slices belong to the action endpoints; the rest run
-  // through `assertXxxUpstreamRecord`). `z.record(z.unknown())` blocks
+  // there (OAuth-managed slices belong to the action endpoints; Codex allows
+  // its operator device policy, and editable configs run through
+  // `assertXxxUpstreamRecord`). `z.record(z.unknown())` blocks
   // primitives / arrays / null from reaching the handler as `config`.
   config: z.record(z.string(), z.unknown()).optional(),
 });

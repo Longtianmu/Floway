@@ -43,6 +43,7 @@ export interface CodexCallEffects {
 interface CodexBackendCallBase {
   upstreamId: string;
   account: CodexAccountCredential;
+  normalizeInstallationId?: boolean;
   model: ProviderModel;
   headers: Headers;
   signal?: AbortSignal;
@@ -247,6 +248,7 @@ const buildCodexRequestIdentity = (
   // a caller can split its identity across surfaces and we still emit
   // consistent values everywhere, and a long-lived socket's frozen handshake
   // headers never outrank the current turn's body.
+  // The operator's installation normalization overrides only the device id.
   const sessionId = stringField(clientMetadata, 'session_id')
     ?? stringField(clientTurnMetadata, 'session_id')
     ?? trimHeader(opts.headers, 'session-id')
@@ -263,9 +265,11 @@ const buildCodexRequestIdentity = (
   // https://github.com/openai/codex/blob/a16863f8704831d13e041ed7dba2c4a57a2a940b/codex-rs/codex-api/src/endpoint/responses.rs#L87-L91
   // https://github.com/openai/codex/blob/a16863f8704831d13e041ed7dba2c4a57a2a940b/codex-rs/core/src/client.rs#L1134-L1136
   const clientRequestId = trimHeader(opts.headers, 'x-client-request-id') ?? threadId;
-  const installationId = stringField(clientMetadata, 'x-codex-installation-id')
-    ?? stringField(clientTurnMetadata, 'installation_id')
-    ?? opts.account.openaiDeviceId;
+  const installationId = opts.normalizeInstallationId === true
+    ? opts.account.openaiDeviceId
+    : stringField(clientMetadata, 'x-codex-installation-id')
+      ?? stringField(clientTurnMetadata, 'installation_id')
+      ?? opts.account.openaiDeviceId;
   // Codex advances the window on every auto-compaction — the id is
   // `{thread_id}:{auto_compact_window_number}` — and a reused socket carries
   // the advanced value in the frame body alone:
@@ -399,6 +403,29 @@ const buildCodexOpenAIResponsesBody = (
   return body;
 };
 
+// Optional account installation policy applies at the shared outbound boundary,
+// including compact/search bodies that otherwise pass through unchanged. Codex
+// keeps this identifier in both metadata projections:
+// https://github.com/openai/codex/blob/a16863f8704831d13e041ed7dba2c4a57a2a940b/codex-rs/core/src/responses_metadata.rs#L184-L189
+const normalizeTurnInstallation = (raw: string | null, installationId: string): string | null => {
+  const metadata = parseClientTurnMetadataJson(raw);
+  return metadata === null ? raw : JSON.stringify({ ...metadata, installation_id: installationId });
+};
+
+const normalizeBodyInstallation = (body: Record<string, unknown>, installationId: string): Record<string, unknown> => {
+  if (!isPlainObject(body.client_metadata)) return body;
+  const metadata = body.client_metadata;
+  const raw = metadata['x-codex-turn-metadata'];
+  return {
+    ...body,
+    client_metadata: {
+      ...metadata,
+      'x-codex-installation-id': installationId,
+      ...(typeof raw === 'string' ? { 'x-codex-turn-metadata': normalizeTurnInstallation(raw, installationId) } : {}),
+    },
+  };
+};
+
 // One upstream round-trip with quota-header persistence and terminal-401
 // classification. The returned Response is what the caller relays:
 //   - 2xx: caller decodes the body (SSE for /responses, JSON for /responses/compact)
@@ -416,6 +443,10 @@ const dispatchCodexHttpCall = async (
   identity: CodexRequestIdentity,
   turnMetadataJson: string | null,
 ): Promise<Response> => {
+  if (opts.normalizeInstallationId === true) {
+    body = normalizeBodyInstallation(body, opts.account.openaiDeviceId);
+    turnMetadataJson = normalizeTurnInstallation(turnMetadataJson, opts.account.openaiDeviceId);
+  }
   const headers = new Headers();
   headers.set('authorization', `Bearer ${accessToken}`);
   headers.set('chatgpt-account-id', opts.account.chatgptAccountId);

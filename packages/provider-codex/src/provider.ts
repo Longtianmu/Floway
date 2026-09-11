@@ -120,6 +120,7 @@ export const createCodexProvider = (record: UpstreamRecord): Provider => {
       return await callCodexAlphaSearch({
         upstreamId: record.id,
         account,
+        normalizeInstallationId: config.normalizeInstallationId,
         model,
         headers: new Headers(opts.headers),
         signal,
@@ -140,7 +141,7 @@ export const createCodexProvider = (record: UpstreamRecord): Provider => {
         ctx, {}, CODEX_OPENAI_RESPONSES_BOUNDARY, async () => {
           const { account } = await readActiveAccount();
           const { model: _ignored, ...wireBody } = ctx.payload;
-          const backendCallBase = { upstreamId: record.id, account, model, headers: ctx.headers, signal, effects, call: opts };
+          const backendCallBase = { upstreamId: record.id, account, normalizeInstallationId: config.normalizeInstallationId, model, headers: ctx.headers, signal, effects, call: opts };
           switch (ctx.action) {
           case 'compact':
             // Narrow to the compact wire shape — defends against a future
