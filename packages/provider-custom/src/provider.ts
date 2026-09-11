@@ -207,7 +207,7 @@ export const createCustomProvider = (record: UpstreamRecord): Provider => {
           { extraHeaders: headersForCall(opts.headers), fetcher: opts.fetcher, wrapUpstreamCall: opts.wrapUpstreamCall },
         );
         return response.ok
-          ? { action: 'compact', ok: true, result: (await response.json()) as OpenAIResponsesCompactionResult, modelKey: rawModelId }
+          ? { action: 'compact', ok: true, result: (await response.json()) as OpenAIResponsesCompactionResult, modelKey: rawModelId, headers: response.headers }
           : { action: 'compact', ok: false, response, modelKey: rawModelId };
       }
       default:

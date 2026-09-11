@@ -220,6 +220,50 @@ test('Responses Lite preserves hosted tools for the upstream when no shim owns t
   assertEquals(callOpenAIResponses.mock.calls.length, 1);
 });
 
+test.each([
+  ['standard', 'lite'], ['lite', 'standard'], ['lite', 'lite'], ['standard', 'standard'],
+] as const)('Responses %s to %s restores only converted request echoes and selects the client header', async (source, target) => {
+  installRepo();
+  const standard = makePayload({
+    instructions: 'Client instructions', tools: [{ type: 'function', name: 'lookup' }],
+    parallel_tool_calls: true, reasoning: { effort: 'high' },
+  });
+  const payload = source === 'lite' ? toLiteOpenAIResponsesPayload(standard) : standard;
+  const upstream = {
+    ...makeOpenAIResponsesResult(), tools: [], instructions: 'Upstream instructions',
+    reasoning: { effort: 'low', context: 'all_turns' }, parallel_tool_calls: false,
+    service_tier: 'effective_tier',
+  };
+  const candidate = makeCandidate(async () => ({
+    action: 'generate', ok: true, modelKey: 'test-model-key',
+    headers: new Headers({ [OPENAI_RESPONSES_LITE_HEADER]: target === 'lite' ? 'true' : 'false', 'x-request-id': 'upstream-trace' }),
+    events: makeProviderEvents([
+      { type: 'response.created', response: upstream },
+      { type: 'response.completed', response: upstream },
+    ]),
+  }), new Set(), { openaiResponses: { transport: target } });
+  const result = await openaiResponsesAttempt.generate({
+    payload, candidate, ctx: makeGatewayCtx(),
+    headers: new Headers(source === 'lite' ? { [OPENAI_RESPONSES_LITE_HEADER]: 'true' } : {}),
+  });
+  assert(result.type === 'events');
+  const responses = [];
+  for await (const frame of result.events) {
+    if (frame.type === 'event' && 'response' in frame.event) responses.push(frame.event.response);
+  }
+  assertEquals(responses.length, 2);
+  for (const response of responses) {
+    for (const field of ['tools', 'instructions', 'parallel_tool_calls', 'reasoning'] as const) {
+      assertEquals(response[field], source === target ? upstream[field] : payload[field]);
+    }
+    assertEquals(response.service_tier, 'effective_tier');
+    assertEquals(response.output, upstream.output);
+  }
+  assertEquals(result.headers?.get(OPENAI_RESPONSES_LITE_HEADER), source === 'lite' ? 'true' : null);
+  assertEquals(result.headers?.get('x-request-id'), 'upstream-trace');
+  assertEquals(upstream.instructions, 'Upstream instructions');
+});
+
 test('Responses Lite source is converted to standard for a standard target', async () => {
   installRepo();
   const source = makePayload({ instructions: 'Be concise.', tools: [{ type: 'function', name: 'lookup', parameters: { type: 'object' } }] });

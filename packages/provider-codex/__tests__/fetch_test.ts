@@ -1185,6 +1185,7 @@ describe('callCodexOpenAIResponsesCompact', () => {
     expect(body.store).toBeUndefined();
 
     expect(result.result.object).toBe('response.compaction');
+    expect(result.headers?.get('x-codex-primary-used-percent')).toBe('42');
     expect(result.result.output[0]).toMatchObject({ id: 'cmp_x', type: 'compaction', encrypted_content: 'FULL_BLOB' });
   });
 

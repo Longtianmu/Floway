@@ -191,7 +191,7 @@ export const createOllamaProvider = (record: UpstreamRecord): Provider => {
           { extraHeaders: [...opts.headers], fetcher: opts.fetcher, wrapUpstreamCall: opts.wrapUpstreamCall },
         ));
         return response.ok
-          ? { action: 'compact', ok: true, result: (await response.json()) as OpenAIResponsesCompactionResult, modelKey: rawModelId }
+          ? { action: 'compact', ok: true, result: (await response.json()) as OpenAIResponsesCompactionResult, modelKey: rawModelId, headers: response.headers }
           : { action: 'compact', ok: false, response, modelKey: rawModelId };
       }
       default:

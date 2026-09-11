@@ -91,7 +91,7 @@ test.each(['lite', 'standard'] as const)('Custom forwards dispatched %s Response
     async request => {
       requests.push({ url: request.url, headers: request.headers, body: await request.json() });
       return request.url.endsWith('/compact')
-        ? jsonResponse(compactResult)
+        ? Response.json(compactResult, { headers: { 'x-upstream-request': 'compact-id' } })
         : sseResponse(
             `event: response.output_item.done\ndata: ${JSON.stringify(outputEvent)}\n\nevent: response.completed\ndata: ${JSON.stringify(completedEvent)}\n\ndata: [DONE]\n\n`,
             200,
@@ -116,6 +116,7 @@ test.each(['lite', 'standard'] as const)('Custom forwards dispatched %s Response
       if (!compacted.ok || compacted.action !== 'compact') throw new Error('Expected a unary compact response');
       assertEquals(compacted.modelKey, 'upstream-model');
       assertEquals(compacted.result, compactResult);
+      assertEquals(compacted.headers?.get('x-upstream-request'), 'compact-id');
     },
   );
 

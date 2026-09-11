@@ -25,7 +25,7 @@ import { OPENAI_RESPONSES_LITE_HEADER, parseOpenAIResponsesStream } from '@flowa
 import { jsonRequestBody, serializeOpenAIImagesEditsJsonPayload, type OpenAIImagesEditsRequest, type ProviderCallResult, type ProviderModel, type ProviderStreamResult, streamingProviderCall, type UpstreamCallOptions } from '@floway-dev/provider';
 
 export type ProviderCompactionResult =
-  | { ok: true; result: OpenAIResponsesCompactionResult; modelKey: string }
+  | { ok: true; result: OpenAIResponsesCompactionResult; modelKey: string; headers?: Headers }
   | { ok: false; response: Response; modelKey: string };
 
 // Hooks for repo-side state transitions. Refresh-token rotations and
@@ -613,7 +613,7 @@ const performUnaryCompactCall = async (
   if (!response.ok) return { ok: false, modelKey: opts.model.id, response };
 
   const result = await response.json() as OpenAIResponsesCompactionResult;
-  return { ok: true, modelKey: opts.model.id, result };
+  return { ok: true, modelKey: opts.model.id, result, headers: response.headers };
 };
 
 const performAlphaSearchCall = async (

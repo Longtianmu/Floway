@@ -91,7 +91,7 @@ export const createAzureProvider = (record: UpstreamRecord): Provider => {
               { extraHeaders: [...ctx.headers], fetcher: opts.fetcher, wrapUpstreamCall: opts.wrapUpstreamCall },
             );
             return response.ok
-              ? { action: 'compact', ok: true, result: (await response.json()) as OpenAIResponsesCompactionResult, modelKey: upstreamModelId }
+              ? { action: 'compact', ok: true, result: (await response.json()) as OpenAIResponsesCompactionResult, modelKey: upstreamModelId, headers: response.headers }
               : { action: 'compact', ok: false, response, modelKey: upstreamModelId };
           }
           default:

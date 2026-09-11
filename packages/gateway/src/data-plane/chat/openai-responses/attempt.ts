@@ -4,6 +4,7 @@ import { openaiResponsesInterceptors } from './interceptors/index.ts';
 import type { OpenAIResponsesAttemptResult, OpenAIResponsesInvocation } from './interceptors/types.ts';
 import { normalizeAssistantInputText } from './items/normalize-assistant-content.ts';
 import { syntheticEventsFromCompaction } from './items/output.ts';
+import { openAIResponsesTransportOutput } from './transport-output.ts';
 import { billableUsageFromOpenAIResponsesEvent, billableUsageFromOpenAIResponsesResult } from './usage.ts';
 import { telemetryModelIdentity, upstreamPerformanceContext } from '../../shared/telemetry/attribution.ts';
 import { tokenUsageFromBillableUsage } from '../../shared/telemetry/usage.ts';
@@ -127,10 +128,14 @@ export const openaiResponsesAttempt = {
       targetApi,
       headers,
     };
-    const chainResult = await runInterceptors(invocation, ctx, openaiResponsesInterceptors, async () =>
+    const upstreamResult = await runInterceptors(invocation, ctx, openaiResponsesInterceptors, async () =>
       await dispatchOpenAIResponses(invocation, ctx, chainTransport));
 
-    if (chainResult.type !== 'events') return chainResult;
+    if (upstreamResult.type !== 'events') return upstreamResult;
+    const targetTransport = targetApi === 'openaiResponses'
+      ? openAIResponsesTransportForEndpoint(candidate.model.endpoints.openaiResponses)
+      : 'standard';
+    const chainResult = openAIResponsesTransportOutput(upstreamResult, args.payload, sourceTransport, sourceTransport !== targetTransport);
 
     if (action === 'compact') {
       const upstreamCompacted = await collectOpenAIResponsesProtocolEventsToResult(chainResult.events);
@@ -140,6 +145,7 @@ export const openaiResponsesAttempt = {
         modelIdentity: chainResult.modelIdentity,
         usage: tokenUsageFromBillableUsage((await chainResult.finalMetadata)?.billableUsage),
         performance: chainResult.performance,
+        headers: chainResult.headers,
       };
     }
     return chainResult;
@@ -285,6 +291,7 @@ const providerOpenAIResponsesResultToExecuteResult = async (
     modelIdentity,
     {
       performance: context,
+      ...(providerResult.headers ? { headers: providerResult.headers } : {}),
       ...(billableUsage === null ? {} : { finalMetadata: Promise.resolve({ modelIdentity, billableUsage }) }),
     },
   );
