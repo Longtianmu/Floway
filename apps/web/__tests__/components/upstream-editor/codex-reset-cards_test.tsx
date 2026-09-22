@@ -70,7 +70,7 @@ describe('Codex reset cards', () => {
     const confirm = within(dialog).getByRole('button', { name: 'Use reset card' });
 
     fireEvent.click(confirm);
-    expect(await within(dialog).findByText('temporary failure')).toBeTruthy();
+    expect(await within(dialog).findByText('Could not confirm the reset. Retry to check the same redemption safely.')).toBeTruthy();
     fireEvent.click(confirm);
 
     await waitFor(() => expect(onQuotaReset).toHaveBeenCalledOnce());
@@ -81,7 +81,7 @@ describe('Codex reset cards', () => {
     ]);
     expect(await screen.findByText('The Codex rate-limit windows were reset.')).toBeTruthy();
     expect(screen.queryByText('Full reset')).toBeNull();
-    expect(screen.getByText(/list refresh failed/)).toBeTruthy();
+    expect(screen.getByText(/The card was processed, but Floway could not refresh all details/)).toBeTruthy();
   });
 
   it('removes both the quota windows and account credit summary after a reset', async () => {
@@ -123,7 +123,7 @@ describe('Codex reset cards', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Use reset card' }));
     let dialog = await screen.findByRole('dialog');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Use reset card' }));
-    expect(await within(dialog).findByText('temporary failure')).toBeTruthy();
+    expect(await within(dialog).findByText('Could not confirm the reset. Retry to check the same redemption safely.')).toBeTruthy();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     fireEvent.click(screen.getByRole('button', { name: 'Use reset card' }));

@@ -23,8 +23,10 @@ export function CodexAccountCard({ record }: { record: CodexRecord }) {
   const account = record.config.accounts[0];
   const lookup = findCredential(record);
   const credential = lookup.kind === 'present' ? lookup.credential : null;
-  const [invalidatedAccountId, setInvalidatedAccountId] = useState<string | null>(null);
-  const visibleQuota = invalidatedAccountId === account.chatgptAccountId ? null : record.codex_quota;
+  const [reset, setReset] = useState<{ accountId: string; at: number } | null>(null);
+  const visibleQuota = reset?.accountId === account.chatgptAccountId
+    ? Object.fromEntries(Object.entries(record.codex_quota ?? {}).filter(([, snapshot]) => Date.parse(snapshot.observed_at) > reset.at))
+    : record.codex_quota;
   const entries = quotaEntries(visibleQuota, now);
   const credits = latestCredits(visibleQuota);
   const status = accountStatus(lookup, entries);
@@ -96,6 +98,10 @@ export function CodexAccountCard({ record }: { record: CodexRecord }) {
       {t('dashboard.upstreamEditor.codex.stateUpdated', { time: dateTime(credential.state_updated_at, locale) })}
     </Text>}
 
-    <CodexResetCards record={record} onQuotaReset={() => setInvalidatedAccountId(account.chatgptAccountId)} />
+    {record.id !== '' && <CodexResetCards
+      key={`${record.id}:${account.chatgptAccountId}`}
+      record={record}
+      onQuotaReset={() => setReset({ accountId: account.chatgptAccountId, at: Date.now() })}
+    />}
   </section>;
 }

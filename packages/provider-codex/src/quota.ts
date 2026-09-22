@@ -170,7 +170,7 @@ export const putCodexQuota = async (
 // A successful earned reset invalidates every locally observed window. Do not
 // synthesize zeroes: OpenAI explicitly requires clients to refetch limits after
 // redemption, and the next Codex response will repopulate the same slot.
-// https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md#8-earned-rate-limit-resets-chatgpt
+// https://github.com/openai/codex/blob/ac7634b9f73ec1bf96466be7a5869f0949d20b30/codex-rs/app-server/README.md#8-earned-rate-limit-resets-chatgpt
 export const clearCodexQuota = async (
   upstreamId: string,
   accountId: string,

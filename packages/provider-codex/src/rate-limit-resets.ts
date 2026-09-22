@@ -10,7 +10,7 @@ import { jsonRequestBody, type Fetcher } from '@floway-dev/provider';
 // unknown reset types and statuses onto `unknown`, but Floway is already the
 // wire boundary and must not discard a future value the operator may need to
 // diagnose:
-// https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/src/protocol/v2/account.rs#L305-L361
+// https://github.com/openai/codex/blob/ac7634b9f73ec1bf96466be7a5869f0949d20b30/codex-rs/app-server-protocol/src/protocol/v2/account.rs#L363-L399
 export interface CodexRateLimitResetCredit {
   id: string;
   reset_type: string;

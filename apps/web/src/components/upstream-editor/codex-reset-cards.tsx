@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { api, callApi } from '../../api/client';
 import type { CodexRateLimitResetCredit, CodexRateLimitResetCredits } from '../../api/types';
@@ -9,6 +9,7 @@ import { useLocale } from '../../lib/use-locale';
 import { useNow } from '../../lib/use-now';
 import { ConfirmDialog } from '../ui/confirm-dialog';
 import { OutcomeMessageBar } from '../ui/outcome-message-bar';
+import { Panel } from '../ui/panel';
 import { ResourceListActions } from '../ui/resource-list';
 import { SectionHeader } from '../ui/section-header';
 import { StatusBadge } from '../ui/status-badge';
@@ -32,8 +33,8 @@ const outcomeKey = (code: string): 'reset' | 'alreadyRedeemed' | 'nothingToReset
   return 'unknown';
 };
 
-const statusKey = (status: string): 'available' | 'expired' | 'redeemed' | null => {
-  if (status === 'available' || status === 'expired' || status === 'redeemed') return status;
+const statusKey = (status: string): 'available' | 'expired' | 'redeemed' | 'redeeming' | null => {
+  if (status === 'available' || status === 'expired' || status === 'redeemed' || status === 'redeeming') return status;
   return null;
 };
 
@@ -49,6 +50,8 @@ export function CodexResetCards({ onQuotaReset, record }: {
   const [outcome, setOutcome] = useState<{ code: string; warning: string | null } | null>(null);
   const [redeemError, setRedeemError] = useState<string | null>(null);
   const [redeeming, setRedeeming] = useState(false);
+  const redeemingRef = useRef(false);
+  const redemptionKeys = useRef(new Map<string, string>());
   const dialog = useDialogInvocation<RedeemInvocation>();
   const envelope = useMemo(() => ({
     id: record.id,
@@ -58,7 +61,7 @@ export function CodexResetCards({ onQuotaReset, record }: {
     proxy_fallback_list: record.proxy_fallback_list,
   }), [record.config, record.id, record.proxy_fallback_list, record.state]);
 
-  const { refresh: load, refreshing: loading } = useRefresh(useCallback(async (signal: AbortSignal) => {
+  const { cancel: cancelLoad, refresh: load, refreshing: loading } = useRefresh(useCallback(async (signal: AbortSignal) => {
     setLoadError(null);
     const { data, error } = await callApi(() => api.api.upstreams.codex['reset-credits'].$post(
       { json: { record: envelope } },
@@ -66,19 +69,21 @@ export function CodexResetCards({ onQuotaReset, record }: {
     ));
     if (signal.aborted) return;
     if (error) {
-      setLoadError(error.message);
+      setLoadError(t('dashboard.upstreamEditor.codex.resetCards.loadError'));
       return;
     }
     setCards(data.reset_credits);
-  }, [envelope]));
+  }, [envelope, t]));
 
   useEffect(() => {
-    if (record.id !== '') void load();
+    if (record.id !== '' && !redeemingRef.current) void load();
   }, [load, record.id]);
 
   const redeem = async () => {
     const invocation = dialog.invocation?.value;
-    if (!invocation) return;
+    if (!invocation || redeemingRef.current) return;
+    redeemingRef.current = true;
+    cancelLoad();
     setRedeeming(true);
     setRedeemError(null);
     try {
@@ -90,25 +95,16 @@ export function CodexResetCards({ onQuotaReset, record }: {
         },
       }));
       if (error) {
-        setRedeemError(error.message);
+        setRedeemError(t('dashboard.upstreamEditor.codex.resetCards.redeemError'));
         return;
       }
-      if (data.reset_credits !== null) {
-        setCards(data.reset_credits);
-      } else if (data.outcome.code === 'reset' || data.outcome.code === 'already_redeemed' || data.outcome.code === 'no_credit') {
-        setCards(current => {
-          if (current === null) return null;
-          const removed = current.credits.some(credit => credit.id === invocation.credit.id);
-          return {
-            available_count: Math.max(0, current.available_count - (removed ? 1 : 0)),
-            credits: current.credits.filter(credit => credit.id !== invocation.credit.id),
-          };
-        });
-      }
+      setCards(data.reset_credits);
+      if (data.outcome.code === 'nothing_to_reset') redemptionKeys.current.delete(invocation.credit.id);
       if (data.outcome.code === 'reset' || data.outcome.code === 'already_redeemed') onQuotaReset();
       setOutcome({ code: data.outcome.code, warning: data.refresh_error });
       dialog.close();
     } finally {
+      redeemingRef.current = false;
       setRedeeming(false);
     }
   };
@@ -123,7 +119,7 @@ export function CodexResetCards({ onQuotaReset, record }: {
       description={cards === null ? undefined : t('dashboard.upstreamEditor.codex.resetCards.available', { count: cards.available_count })}
       actions={<ResourceListActions
         appearance="subtle"
-        disabled={record.id === ''}
+        disabled={record.id === '' || dialog.isOpen || redeeming}
         onRefresh={() => void load()}
         refreshLabel={t('dashboard.upstreamEditor.codex.resetCards.refresh')}
         refreshing={loading}
@@ -132,8 +128,10 @@ export function CodexResetCards({ onQuotaReset, record }: {
 
     {cards?.credits.map(credit => {
       const usable = codexResetCreditIsUsable(credit, now);
-      const knownStatus = statusKey(credit.status);
-      return <article className="grid gap-2 rounded-md border border-solid border-fui-divider p-3" key={credit.id}>
+      const knownStatus = credit.status === 'available' && credit.expires_at !== null && Date.parse(credit.expires_at) <= now
+        ? 'expired'
+        : statusKey(credit.status);
+      return <Panel as="article" key={credit.id}>
         <div className="flex items-start justify-between gap-3">
           <div className="grid min-w-0 gap-1">
             <Text weight="semibold">{credit.title ?? t('dashboard.upstreamEditor.codex.resetCards.defaultTitle')}</Text>
@@ -150,14 +148,20 @@ export function CodexResetCards({ onQuotaReset, record }: {
             : t('dashboard.upstreamEditor.codex.resetCards.expires', { time: dateTime(credit.expires_at, locale) })}</Text>
         </div>
         <div className="flex justify-end">
-          {usable && <Button appearance="primary" onClick={() => dialog.open({ credit, idempotencyKey: crypto.randomUUID() })}>
+          {usable && <Button appearance="primary" disabled={loading || loadError !== null || redeeming} onClick={() => {
+            cancelLoad();
+            const idempotencyKey = redemptionKeys.current.get(credit.id) ?? crypto.randomUUID();
+            redemptionKeys.current.set(credit.id, idempotencyKey);
+            setRedeemError(null);
+            dialog.open({ credit, idempotencyKey });
+          }}>
             {t('dashboard.upstreamEditor.codex.resetCards.use')}
           </Button>}
         </div>
-      </article>;
+      </Panel>;
     })}
 
-    {cards !== null && cards.credits.length === 0 && !loading && <Text size={200} className="text-fui-fg3">
+    {cards !== null && cards.credits.length === 0 && !loading && !loadError && <Text size={200} className="text-fui-fg3">
       {t('dashboard.upstreamEditor.codex.resetCards.empty')}
     </Text>}
     {loadError && <OutcomeMessageBar onDismiss={() => setLoadError(null)}>{loadError}</OutcomeMessageBar>}
@@ -168,7 +172,7 @@ export function CodexResetCards({ onQuotaReset, record }: {
       <span>{resultKey === 'unknown'
         ? t('dashboard.upstreamEditor.codex.resetCards.result.unknown', { code: outcome.code })
         : t(`dashboard.upstreamEditor.codex.resetCards.result.${resultKey}`)}</span>
-      {outcome.warning && <span>{t('dashboard.upstreamEditor.codex.resetCards.refreshWarning', { error: outcome.warning })}</span>}
+      {outcome.warning && <span>{t('dashboard.upstreamEditor.codex.resetCards.refreshWarning')}</span>}
     </OutcomeMessageBar>}
 
     {dialog.invocation && selected && <ConfirmDialog

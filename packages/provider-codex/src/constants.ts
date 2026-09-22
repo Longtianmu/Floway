@@ -51,7 +51,7 @@ export const CODEX_MODELS_PATH = '/codex/models';
 // ordinary Codex data plane. The official Codex backend client selects these
 // WHAM paths for chatgpt.com and posts a caller-stable redemption id beside an
 // optional opaque credit id:
-// https://github.com/openai/codex/blob/main/codex-rs/backend-client/src/client/rate_limit_resets.rs#L90-L130
+// https://github.com/openai/codex/blob/ac7634b9f73ec1bf96466be7a5869f0949d20b30/codex-rs/backend-client/src/client/rate_limit_resets.rs#L112-L171
 export const CODEX_RATE_LIMIT_RESET_CREDITS_PATH = '/wham/rate-limit-reset-credits';
 export const CODEX_RATE_LIMIT_RESET_CREDITS_CONSUME_PATH = '/wham/rate-limit-reset-credits/consume';
 
