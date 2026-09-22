@@ -97,7 +97,7 @@ describe('Codex reset cards', () => {
         },
       },
     };
-    renderInApp(<CodexAccountCard record={accountRecord} />);
+    const view = renderInApp(<CodexAccountCard record={accountRecord} />);
 
     expect(screen.getByText('credits: 1')).toBeTruthy();
     fireEvent.click(await screen.findByRole('button', { name: 'Use reset card' }));
@@ -106,5 +106,38 @@ describe('Codex reset cards', () => {
 
     await waitFor(() => expect(screen.queryByText('credits: 1')).toBeNull());
     expect(screen.getByText('No quota snapshots yet - Codex calls populate them.')).toBeTruthy();
+
+    view.rerender(<CodexAccountCard record={{ ...accountRecord, codex_quota: structuredClone(accountRecord.codex_quota) }} />);
+    expect(screen.queryByText('credits: 1')).toBeNull();
+    view.rerender(<CodexAccountCard record={{ ...accountRecord, codex_quota: {
+      codex: { observed_at: new Date(Date.now() + 1000).toISOString(), primary_used_percent: 5, credits_balance: 2 },
+    } }} />);
+    expect(screen.getByText('credits: 2')).toBeTruthy();
+  });
+
+  it('keeps the redemption key after an ambiguous failure and reopening confirmation', async () => {
+    vi.mocked(crypto.randomUUID)
+      .mockReturnValueOnce('00000000-0000-4000-8000-000000000001')
+      .mockReturnValueOnce('00000000-0000-4000-8000-000000000002');
+    renderInApp(<CodexResetCards record={record} onQuotaReset={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Use reset card' }));
+    let dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Use reset card' }));
+    expect(await within(dialog).findByText('temporary failure')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    fireEvent.click(screen.getByRole('button', { name: 'Use reset card' }));
+    dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Use reset card' }));
+    await waitFor(() => expect(consumeBodies).toHaveLength(2));
+    expect(consumeBodies[0].idempotency_key).toBe(consumeBodies[1].idempotency_key);
+  });
+
+  it('does not redeem when confirmation is cancelled', async () => {
+    renderInApp(<CodexResetCards record={record} onQuotaReset={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Use reset card' }));
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(consumeBodies).toHaveLength(0);
   });
 });
