@@ -175,6 +175,7 @@ export const codexRawToProviderModel = (raw: CodexRawModel, enabledFlags: Readon
   }
   return {
     id: raw.id,
+    upstreamModelId: raw.id,
     display_name: raw.display_name,
     owned_by: 'openai',
     kind: 'chat',
@@ -186,6 +187,7 @@ export const codexRawToProviderModel = (raw: CodexRawModel, enabledFlags: Readon
       useResponsesLite: raw.use_responses_lite ?? false,
     } satisfies CodexProviderData,
     enabledFlags,
+    opaqueBlobCompatibilityScope: { bindToUpstream: true, key: 'openai' },
     ...(pricing ? { pricing } : {}),
     ...(Object.keys(chat).length > 0 ? { chat } : {}),
   };
@@ -202,11 +204,13 @@ export const codexPlanSupportsImages = (planType: string | undefined): boolean =
 
 export const codexImageProviderModel = (enabledFlags: ReadonlySet<FlagId>): ProviderModel => ({
   id: CODEX_IMAGE_MODEL_ID,
+  upstreamModelId: CODEX_IMAGE_MODEL_ID,
   display_name: 'GPT-Image-2',
   owned_by: 'openai',
   kind: 'image',
   limits: {},
   endpoints: { openaiImagesGenerations: {}, openaiImagesEdits: {} },
   enabledFlags,
+  opaqueBlobCompatibilityScope: { bindToUpstream: true, key: 'openai' },
   pricing: GPT_IMAGE_2_PRICING,
 });
