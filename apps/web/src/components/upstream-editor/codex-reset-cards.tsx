@@ -131,7 +131,7 @@ export function CodexResetCards({ onQuotaReset, record }: {
       const knownStatus = credit.status === 'available' && credit.expires_at !== null && Date.parse(credit.expires_at) <= now
         ? 'expired'
         : statusKey(credit.status);
-      return <Panel as="article" key={credit.id}>
+      return <Panel key={credit.id}>
         <div className="flex items-start justify-between gap-3">
           <div className="grid min-w-0 gap-1">
             <Text weight="semibold">{credit.title ?? t('dashboard.upstreamEditor.codex.resetCards.defaultTitle')}</Text>
