@@ -21,6 +21,7 @@ const flagGroupById = {
   'openai-responses-compact-shim': 'shims',
   'openai-responses-compact-decrypt': 'shims',
   'disable-reasoning-on-forced-tool-choice': 'apiCompatibility',
+  'empty-tools-tool-choice-none': 'apiCompatibility',
   'rewrite-mid-conv-system-to-user': 'apiCompatibility',
   'rewrite-developer-to-system': 'apiCompatibility',
   'rewrite-system-to-developer': 'apiCompatibility',

@@ -19,6 +19,7 @@ export const COPILOT_DEFAULT_FLAGS: FlagDefaults = {
   'openai-responses-compact-shim': false,
   'openai-responses-compact-decrypt': true,
   'disable-reasoning-on-forced-tool-choice': false,
+  'empty-tools-tool-choice-none': false,
   // Upstream default is off; Claude models below 4.8 flip it on via the
   // per-model default. See `defaultFlagsForCopilotModel` for the empirical
   // basis.
