@@ -109,9 +109,12 @@ describe('Codex reset cards', () => {
 
     view.rerender(<CodexAccountCard record={{ ...accountRecord, codex_quota: structuredClone(accountRecord.codex_quota) }} />);
     expect(screen.queryByText('credits: 1')).toBeNull();
-    view.rerender(<CodexAccountCard record={{ ...accountRecord, codex_quota: {
-      codex: { observed_at: new Date(Date.now() + 1000).toISOString(), primary_used_percent: 5, credits_balance: 2 },
-    } }} />);
+    view.rerender(<CodexAccountCard record={{
+      ...accountRecord,
+      codex_quota: {
+        codex: { observed_at: new Date(Date.now() + 1000).toISOString(), primary_used_percent: 5, credits_balance: 2 },
+      },
+    }} />);
     expect(screen.getByText('credits: 2')).toBeTruthy();
   });
 
@@ -139,5 +142,38 @@ describe('Codex reset cards', () => {
     fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(consumeBodies).toHaveLength(0);
+  });
+
+  it('shows a load failure without pretending there are no cards or echoing upstream input', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ error: 'sensitive stored input' }, { status: 502 }));
+    renderInApp(<CodexResetCards record={record} onQuotaReset={vi.fn()} />);
+    expect(await screen.findByText('Could not load reset cards. Try refreshing again.')).toBeTruthy();
+    expect(screen.queryByText(/No reset cards are available/)).toBeNull();
+    expect(screen.queryByText('sensitive stored input')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh reset cards' }));
+    expect(await screen.findByText('Full reset')).toBeTruthy();
+  });
+
+  it('renders expired and unknown cards without offering redemption', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
+      reset_credits: {
+        available_count: 0,
+        credits: [
+          { ...card, expires_at: '2000-01-01T00:00:00Z' },
+          { ...card, id: 'future', reset_type: 'future_type', status: 'future_status' },
+        ],
+      },
+    }));
+    renderInApp(<CodexResetCards record={record} onQuotaReset={vi.fn()} />);
+    expect(await screen.findByText('Expired')).toBeTruthy();
+    expect(screen.getByText('future_status')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Use reset card' })).toBeNull();
+    expect(consumeBodies).toHaveLength(0);
+  });
+
+  it('does not load reset cards for an unsaved account', () => {
+    renderInApp(<CodexAccountCard record={{ ...record, id: '' }} />);
+    expect(screen.queryByText('Reset cards')).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
