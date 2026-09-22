@@ -164,7 +164,7 @@ export function CodexResetCards({ onQuotaReset, record }: {
     {cards !== null && cards.credits.length === 0 && !loading && !loadError && <Text size={200} className="text-fui-fg3">
       {t('dashboard.upstreamEditor.codex.resetCards.empty')}
     </Text>}
-    {loadError && <OutcomeMessageBar onDismiss={() => setLoadError(null)}>{loadError}</OutcomeMessageBar>}
+    {loadError && <OutcomeMessageBar>{loadError}</OutcomeMessageBar>}
     {outcome && resultKey && <OutcomeMessageBar
       intent={resultKey === 'reset' || resultKey === 'alreadyRedeemed' ? 'success' : 'info'}
       onDismiss={() => setOutcome(null)}
