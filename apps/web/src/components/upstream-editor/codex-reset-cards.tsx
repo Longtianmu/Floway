@@ -12,7 +12,6 @@ import { OutcomeMessageBar } from '../ui/outcome-message-bar';
 import { Panel } from '../ui/panel';
 import { ResourceListActions } from '../ui/resource-list';
 import { SectionHeader } from '../ui/section-header';
-import { StatusBadge } from '../ui/status-badge';
 import { useDialogInvocation } from '../ui/use-dialog-invocation';
 import { useRefresh } from '../ui/use-refresh';
 import { codexResetCreditIsUsable, type CodexRecord } from '../upstreams/codex-account';
@@ -137,26 +136,23 @@ export function CodexResetCards({ onQuotaReset, record }: {
             <Text weight="semibold">{credit.title ?? t('dashboard.upstreamEditor.codex.resetCards.defaultTitle')}</Text>
             {credit.description && <Text size={200} className="text-fui-fg2">{credit.description}</Text>}
           </div>
-          <StatusBadge tone={usable ? 'success' : 'neutral'}>{knownStatus === null
-            ? credit.status
-            : t(`dashboard.upstreamEditor.codex.resetCards.status.${knownStatus}`)}</StatusBadge>
-        </div>
-        <div className="flex flex-wrap gap-x-4 gap-y-1">
-          <Text size={200} className="text-fui-fg3">{t('dashboard.upstreamEditor.codex.resetCards.granted', { time: dateTime(credit.granted_at, locale) })}</Text>
-          <Text size={200} className="text-fui-fg3">{credit.expires_at === null
-            ? t('dashboard.upstreamEditor.codex.resetCards.noExpiry')
-            : t('dashboard.upstreamEditor.codex.resetCards.expires', { time: dateTime(credit.expires_at, locale) })}</Text>
-        </div>
-        <div className="flex justify-end">
-          {usable && <Button appearance="primary" disabled={loading || loadError !== null || redeeming} onClick={() => {
+          <Button appearance={usable ? 'primary' : 'secondary'} disabled={!usable || loading || loadError !== null || redeeming} onClick={() => {
             cancelLoad();
             const idempotencyKey = redemptionKeys.current.get(credit.id) ?? crypto.randomUUID();
             redemptionKeys.current.set(credit.id, idempotencyKey);
             setRedeemError(null);
             dialog.open({ credit, idempotencyKey });
           }}>
-            {t('dashboard.upstreamEditor.codex.resetCards.use')}
-          </Button>}
+            {usable
+              ? t('dashboard.upstreamEditor.codex.resetCards.useShort')
+              : knownStatus === null ? credit.status : t(`dashboard.upstreamEditor.codex.resetCards.status.${knownStatus}`)}
+          </Button>
+        </div>
+        <div className="flex flex-wrap gap-x-4 gap-y-1">
+          <Text size={200} className="text-fui-fg3">{t('dashboard.upstreamEditor.codex.resetCards.granted', { time: dateTime(credit.granted_at, locale) })}</Text>
+          <Text size={200} className="text-fui-fg3">{credit.expires_at === null
+            ? t('dashboard.upstreamEditor.codex.resetCards.noExpiry')
+            : t('dashboard.upstreamEditor.codex.resetCards.expires', { time: dateTime(credit.expires_at, locale) })}</Text>
         </div>
       </Panel>;
     })}

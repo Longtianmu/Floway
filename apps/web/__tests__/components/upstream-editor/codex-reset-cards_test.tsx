@@ -65,7 +65,7 @@ describe('Codex reset cards', () => {
     renderInApp(<CodexResetCards record={record} onQuotaReset={onQuotaReset} />);
 
     expect(await screen.findByText('Full reset')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Use reset card' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use', exact: true }));
     const dialog = await screen.findByRole('dialog');
     const confirm = within(dialog).getByRole('button', { name: 'Use reset card' });
 
@@ -100,7 +100,7 @@ describe('Codex reset cards', () => {
     const view = renderInApp(<CodexAccountCard record={accountRecord} />);
 
     expect(screen.getByText('credits: 1')).toBeTruthy();
-    fireEvent.click(await screen.findByRole('button', { name: 'Use reset card' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Use', exact: true }));
     const dialog = await screen.findByRole('dialog');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Use reset card' }));
 
@@ -123,13 +123,13 @@ describe('Codex reset cards', () => {
       .mockReturnValueOnce('00000000-0000-4000-8000-000000000001')
       .mockReturnValueOnce('00000000-0000-4000-8000-000000000002');
     renderInApp(<CodexResetCards record={record} onQuotaReset={vi.fn()} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Use reset card' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Use', exact: true }));
     let dialog = await screen.findByRole('dialog');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Use reset card' }));
     expect(await within(dialog).findByText('Could not confirm the reset. Retry to check the same redemption safely.')).toBeTruthy();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    fireEvent.click(screen.getByRole('button', { name: 'Use reset card' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use', exact: true }));
     dialog = await screen.findByRole('dialog');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Use reset card' }));
     await waitFor(() => expect(consumeBodies).toHaveLength(2));
@@ -138,7 +138,7 @@ describe('Codex reset cards', () => {
 
   it('does not redeem when confirmation is cancelled', async () => {
     renderInApp(<CodexResetCards record={record} onQuotaReset={vi.fn()} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Use reset card' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Use', exact: true }));
     fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(consumeBodies).toHaveLength(0);
@@ -167,7 +167,9 @@ describe('Codex reset cards', () => {
     renderInApp(<CodexResetCards record={record} onQuotaReset={vi.fn()} />);
     expect(await screen.findByText('Expired')).toBeTruthy();
     expect(screen.getByText('future_status')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Use reset card' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Use', exact: true })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Expired' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'future_status' }).hasAttribute('disabled')).toBe(true);
     expect(consumeBodies).toHaveLength(0);
   });
 
@@ -175,5 +177,23 @@ describe('Codex reset cards', () => {
     renderInApp(<CodexAccountCard record={{ ...record, id: '' }} />);
     expect(screen.queryByText('Reset cards')).toBeNull();
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('keeps redeemed cards disabled until the upstream list removes them', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
+      reset_credits: { available_count: 0, credits: [{ ...card, status: 'redeemed' }] },
+    }));
+    renderInApp(<CodexResetCards record={record} onQuotaReset={vi.fn()} />);
+    const redeemed = await screen.findByRole('button', { name: 'Redeemed' });
+    expect(redeemed.hasAttribute('disabled')).toBe(true);
+    fireEvent.click(redeemed);
+    expect(consumeBodies).toHaveLength(0);
+
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({
+      reset_credits: { available_count: 0, credits: [] },
+    }));
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh reset cards' }));
+    expect(await screen.findByText('No reset cards are available for this ChatGPT subscription.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Redeemed' })).toBeNull();
   });
 });

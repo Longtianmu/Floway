@@ -885,6 +885,7 @@ const en = {
             expires: 'Expires {{time}}',
             noExpiry: 'No expiry reported',
             use: 'Use reset card',
+            useShort: 'Use',
             empty: 'No reset cards are available for this ChatGPT subscription.',
             status: { available: 'Available', expired: 'Expired', redeemed: 'Redeemed', redeeming: 'Redeeming' },
             confirmTitle: 'Use this reset card?',

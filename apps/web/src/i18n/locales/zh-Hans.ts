@@ -841,6 +841,7 @@ const zhHansCN = {
             expires: '到期于 {{time}}',
             noExpiry: '上游未提供到期时间',
             use: '使用重置卡',
+            useShort: '使用',
             empty: '此 ChatGPT 订阅当前没有可用的重置卡。',
             status: { available: '可用', expired: '已过期', redeemed: '已兑换', redeeming: '兑换中' },
             confirmTitle: '使用这张重置卡？',
