@@ -94,9 +94,9 @@ export const parseCodexRateLimitResetOutcome = (value: unknown): CodexRateLimitR
   return { code: requiredString(value, 'code', 'Codex reset-credit consume response') };
 };
 
-const headersFor = (accessToken: string, accountId: string): Headers => new Headers({
+const headersFor = (accessToken: string, accountId: string | null): Headers => new Headers({
   authorization: `Bearer ${accessToken}`,
-  'chatgpt-account-id': accountId,
+  ...(accountId === null ? {} : { 'chatgpt-account-id': accountId }),
   'user-agent': CODEX_USER_AGENT,
   accept: 'application/json',
 });
@@ -113,7 +113,7 @@ const jsonFrom = async (response: Response, operation: 'list' | 'consume'): Prom
 
 export const fetchCodexRateLimitResetCredits = async (opts: {
   accessToken: string;
-  accountId: string;
+  accountId: string | null;
   fetcher: Fetcher;
   signal?: AbortSignal;
 }): Promise<CodexRateLimitResetCredits> => {
@@ -127,7 +127,7 @@ export const fetchCodexRateLimitResetCredits = async (opts: {
 
 export const consumeCodexRateLimitResetCredit = async (opts: {
   accessToken: string;
-  accountId: string;
+  accountId: string | null;
   creditId: string;
   idempotencyKey: string;
   fetcher: Fetcher;
