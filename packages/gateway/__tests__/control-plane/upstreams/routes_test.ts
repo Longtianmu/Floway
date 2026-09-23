@@ -1211,7 +1211,7 @@ test('POST /api/upstreams/codex/oauth/refresh flips the row to refresh_failed wh
 test('POST /api/upstreams/codex/reset-credits lists earned reset cards for the stored account', async () => {
   const { repo, adminSession } = await setupAppTest();
   await repo.upstreams.deleteAll();
-  const created = await createCodexUpstreamViaExchange(adminSession);
+  const created = await createCodexUpstreamViaExchange(adminSession, { tokens: { access_token: 'at_test', refresh_token: 'rt_test', id_token: fakeIdToken({}), expires_at: '2100-01-01T00:00:00Z' } });
 
   await withMockedFetch(
     request => {
@@ -1278,7 +1278,7 @@ test('POST /api/upstreams/codex/reset-credits refreshes once after a definite up
 test('POST /api/upstreams/codex/reset-credits/consume sends the stable key and invalidates stale quota', async () => {
   const { repo, adminSession } = await setupAppTest();
   await repo.upstreams.deleteAll();
-  const created = await createCodexUpstreamViaExchange(adminSession);
+  const created = await createCodexUpstreamViaExchange(adminSession, { tokens: { access_token: 'at_test', refresh_token: 'rt_test', id_token: fakeIdToken({}), expires_at: '2100-01-01T00:00:00Z' } });
   const stored = await getRecord(repo, created.id);
   const state = stored.state as { accounts: Array<Record<string, unknown>> };
   await repo.upstreams.save({

@@ -61,6 +61,12 @@ describe('Codex rate-limit reset cards', () => {
     });
   });
 
+  test('omits the account header for credentials without an account ID', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ available_count: 0, credits: [] }));
+    await fetchCodexRateLimitResetCredits({ accessToken: 'at_test', accountId: null, fetcher: testFetcher });
+    expect(new Headers(fetchSpy.mock.calls[0][1]?.headers).has('chatgpt-account-id')).toBe(false);
+  });
+
   test('fails loudly on malformed card details', () => {
     expect(() => parseCodexRateLimitResetCredits({ available_count: 1, credits: [{ ...detail, id: '' }] }))
       .toThrow(/credits\[0\]\.id/);
