@@ -1,0 +1,54 @@
+{
+  "commit": "f224f96b59fcd1d5997f300ce8c252d7e8830896",
+  "capturedAt": "2026-09-23T11:45:52.016Z",
+  "source": "Production UI with synthetic API responses",
+  "pageErrors": [],
+  "unexpectedRequests": [],
+  "screenshots": [
+    {
+      "file": "01-available-light.png",
+      "label": "可用卡 · 浅色"
+    },
+    {
+      "file": "02-confirmation.png",
+      "label": "兑换前二次确认"
+    },
+    {
+      "file": "03-redeeming.png",
+      "label": "正在兑换 · 禁止重复提交"
+    },
+    {
+      "file": "04-success.png",
+      "label": "兑换成功 · 清除旧配额"
+    },
+    {
+      "file": "05-empty.png",
+      "label": "没有重置卡"
+    },
+    {
+      "file": "06-load-error.png",
+      "label": "加载失败"
+    },
+    {
+      "file": "08-expired.png",
+      "label": "过期卡不可兑换"
+    },
+    {
+      "file": "07-redemption-error.png",
+      "label": "结果未确认 · 可安全重试"
+    },
+    {
+      "file": "09-available-dark.png",
+      "label": "可用卡 · 深色"
+    },
+    {
+      "file": "10-mobile-chinese.png",
+      "label": "中文移动端 · 390px"
+    }
+  ],
+  "cancelRequests": 0,
+  "successRequests": 1,
+  "retryRequests": 3,
+  "retryKeyCount": 1,
+  "mobileHorizontalOverflow": false
+}
