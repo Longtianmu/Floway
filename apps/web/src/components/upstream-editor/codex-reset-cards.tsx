@@ -131,12 +131,12 @@ export function CodexResetCards({ onQuotaReset, record }: {
         ? 'expired'
         : statusKey(credit.status);
       return <Panel key={credit.id}>
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center justify-between gap-3">
           <div className="grid min-w-0 gap-1">
             <Text weight="semibold">{credit.title ?? t('dashboard.upstreamEditor.codex.resetCards.defaultTitle')}</Text>
             {credit.description && <Text size={200} className="text-fui-fg2">{credit.description}</Text>}
           </div>
-          <Button appearance={usable ? 'primary' : 'secondary'} disabled={!usable || loading || loadError !== null || redeeming} onClick={() => {
+          <Button appearance={usable ? 'primary' : 'secondary'} className="shrink-0" disabled={!usable || loading || loadError !== null || redeeming} onClick={() => {
             cancelLoad();
             const idempotencyKey = redemptionKeys.current.get(credit.id) ?? crypto.randomUUID();
             redemptionKeys.current.set(credit.id, idempotencyKey);
@@ -148,9 +148,9 @@ export function CodexResetCards({ onQuotaReset, record }: {
               : knownStatus === null ? credit.status : t(`dashboard.upstreamEditor.codex.resetCards.status.${knownStatus}`)}
           </Button>
         </div>
-        <div className="flex flex-wrap gap-x-4 gap-y-1">
+        <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
           <Text size={200} className="text-fui-fg3">{t('dashboard.upstreamEditor.codex.resetCards.granted', { time: dateTime(credit.granted_at, locale) })}</Text>
-          <Text size={200} className="text-fui-fg3">{credit.expires_at === null
+          <Text size={200} className="ml-auto text-right text-fui-fg3">{credit.expires_at === null
             ? t('dashboard.upstreamEditor.codex.resetCards.noExpiry')
             : t('dashboard.upstreamEditor.codex.resetCards.expires', { time: dateTime(credit.expires_at, locale) })}</Text>
         </div>
