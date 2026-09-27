@@ -1,6 +1,6 @@
 {
-  "commit": "586717108a12f80daf060fe30c111718071df120",
-  "capturedAt": "2026-09-27T15:52:00.449Z",
+  "commit": "2f7a03844562a3727b9188110382f7107d083a91",
+  "capturedAt": "2026-09-27T18:27:32.056Z",
   "source": "Production UI with synthetic API responses",
   "pageErrors": [],
   "unexpectedRequests": [],
@@ -47,29 +47,25 @@
     },
     {
       "file": "11-compact-english.png",
-      "label": "English narrow layout · 320px"
+      "label": "English mobile · 320px"
     }
   ],
-  "alignment": {
-    "desktop": {
-      "titleCenterDelta": 0,
-      "expiryRightDelta": 0,
-      "expiryOverflow": false
-    },
-    "mobile-zh": {
-      "titleCenterDelta": 0,
-      "expiryRightDelta": 0,
-      "expiryOverflow": false
-    },
-    "compact-en": {
-      "titleCenterDelta": 0,
-      "expiryRightDelta": 0,
-      "expiryOverflow": false
-    }
+  "desktopAlignment": {
+    "titleCenterDelta": 0,
+    "expiryRightDelta": 0
   },
   "cancelRequests": 0,
   "successRequests": 1,
   "retryRequests": 3,
   "retryKeyCount": 1,
-  "mobileHorizontalOverflow": false
+  "mobileAlignment": {
+    "titleCenterDelta": 0,
+    "expiryRightDelta": 0
+  },
+  "mobileHorizontalOverflow": false,
+  "compactAlignment": {
+    "titleCenterDelta": 0,
+    "expiryRightDelta": 0
+  },
+  "compactHorizontalOverflow": false
 }
