@@ -1,5 +1,5 @@
 import type { FlagId, FlagOverrides } from './flags.ts';
-import type { UpstreamChatModelConfig } from './model-config.ts';
+import type { UpstreamChatModelConfig, UpstreamModelConfig } from './model-config.ts';
 import type { ModelPrefixConfig } from './model-prefix.ts';
 import type { AliasSelection, AliasTarget, ModelKind, ModelEndpoints, ModelPricing, OpaqueBlobCompatibilityScope, PublicModelLimits, RerankTarget } from '@floway-dev/protocols/common';
 
@@ -50,12 +50,15 @@ export interface ProxyFallbackEntry {
 // A cached projection of one upstream's catalog, stored on the upstream row.
 // `revision` is the catalog contract version the entry was written under, so a
 // deploy that changes the projection invalidates older entries; `lastError`
-// annotates a previously-successful entry whose refresh failed.
+// records a failed refresh even if no successful catalog exists yet.
 export interface UpstreamModelsCache {
   revision: number;
   fetchedAt: number;
   models: ProviderModel[];
-  lastError: { message: string; at: number } | null;
+  // Custom's editable auto rows include models overridden by manual entries
+  // and rerank rows that are not part of the routable provider catalog.
+  discovered?: UpstreamModelConfig[];
+  lastError: { message: string; at: number; failureCount: number } | null;
 }
 
 // One upstream's persisted record. `config` is a per-provider opaque payload;
@@ -72,10 +75,9 @@ export interface UpstreamRecord {
   // Gateway-written state that can change without an operator editing config;
   // null when a provider has no runtime state.
   state: unknown;
-  // The upstream's cached catalog, read on the same round trip as the row
-  // rather than through a second query. Null until the first successful fetch.
-  // Written only by the catalog refresh path — an operator save leaves it
-  // alone.
+  // The cached catalog is read with the upstream row. It is null before any
+  // refresh attempt and after provider configuration changes; a failed first
+  // refresh stores an empty entry with its error.
   modelsCache: UpstreamModelsCache | null;
   flagOverrides: FlagOverrides;
   // Model ids the operator switched off for this upstream, matched against the
