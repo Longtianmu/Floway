@@ -1507,17 +1507,15 @@ test('POST /api/upstreams/codex/reset-credits/consume sends the stable key and i
   const created = await createCodexUpstreamViaExchange(adminSession, { tokens: { access_token: 'at_test', refresh_token: 'rt_test', id_token: fakeIdToken({}), expires_at: '2100-01-01T00:00:00Z' } });
   const stored = await getRecord(repo, created.id);
   const state = stored.state as { accounts: Array<Record<string, unknown>> };
-  await repo.upstreams.save({
-    ...stored,
-    state: {
-      accounts: state.accounts.map(account => ({
-        ...account,
-        quotaSnapshot: {
-          codex: { fetchedAt: Date.now(), data: { observed_at: '2026-06-17T00:00:00Z', primary_used_percent: 100 } },
-        },
-      })),
-    },
-  });
+  await repo.upstreams.saveState(created.id, current => ({
+    ...(current as Record<string, unknown>),
+    accounts: state.accounts.map(account => ({
+      ...account,
+      quotaSnapshot: {
+        codex: { fetchedAt: Date.now(), data: { observed_at: '2026-06-17T00:00:00Z', primary_used_percent: 100 } },
+      },
+    })),
+  }));
 
   const paths: string[] = [];
   await withMockedFetch(
