@@ -1,6 +1,6 @@
 {
-  "commit": "f224f96b59fcd1d5997f300ce8c252d7e8830896",
-  "capturedAt": "2026-09-23T11:45:52.016Z",
+  "commit": "586717108a12f80daf060fe30c111718071df120",
+  "capturedAt": "2026-09-27T15:52:00.449Z",
   "source": "Production UI with synthetic API responses",
   "pageErrors": [],
   "unexpectedRequests": [],
@@ -44,8 +44,29 @@
     {
       "file": "10-mobile-chinese.png",
       "label": "中文移动端 · 390px"
+    },
+    {
+      "file": "11-compact-english.png",
+      "label": "English narrow layout · 320px"
     }
   ],
+  "alignment": {
+    "desktop": {
+      "titleCenterDelta": 0,
+      "expiryRightDelta": 0,
+      "expiryOverflow": false
+    },
+    "mobile-zh": {
+      "titleCenterDelta": 0,
+      "expiryRightDelta": 0,
+      "expiryOverflow": false
+    },
+    "compact-en": {
+      "titleCenterDelta": 0,
+      "expiryRightDelta": 0,
+      "expiryOverflow": false
+    }
+  },
   "cancelRequests": 0,
   "successRequests": 1,
   "retryRequests": 3,
