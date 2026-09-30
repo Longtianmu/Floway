@@ -1043,6 +1043,7 @@ const en = {
         unknownModel: 'Unknown model',
         status: { success: 'Successful request', warning: 'Request warning', error: 'Failed request' },
         duration: 'Duration: {{value, number}}ms',
+        ttft: 'Time to first token: {{value, number}}ms',
         requestBytes: 'Request payload: {{value, number}} bytes',
         responseBytes: 'Response payload: {{value, number}} bytes',
         selectPrompt: 'Select a request to inspect its details',
