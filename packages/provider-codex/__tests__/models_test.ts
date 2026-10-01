@@ -53,10 +53,10 @@ describe('fetchCodexCatalog', () => {
     }));
     const [raw] = await fetchCodexCatalog({ accessToken: 'at', accountId: 'acc', fetcher: directFetcher });
     const model = codexRawToProviderModel(raw, new Set());
-    expect(spy.mock.calls[0][0]).toBe('https://chatgpt.com/backend-api/codex/models?client_version=0.156.0');
+    expect(spy.mock.calls[0][0]).toBe('https://chatgpt.com/backend-api/codex/models?client_version=0.159.3');
     const headers = new Headers(spy.mock.calls[0][1]?.headers);
-    expect(headers.get('user-agent')).toBe('codex_cli_rs/0.156.0 (Mac OS 26.5.0; arm64) iTerm.app/3.6.10');
-    expect(headers.get('version')).toBe('0.156.0');
+    expect(headers.get('user-agent')).toBe('codex_cli_rs/0.159.3 (Mac OS 26.5.0; arm64) iTerm.app/3.6.10');
+    expect(headers.get('version')).toBe('0.159.3');
     expect(model.limits.max_context_window_tokens).toBe(872000);
     expect(codexModelContextWindow(model)).toEqual({ context_window: 272000, max_context_window: 872000 });
     expect(codexModelUsesResponsesLite(model)).toBe(true);
