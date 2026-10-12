@@ -2,6 +2,7 @@ import type { Context } from 'hono';
 
 import { wrapOpenAIResponsesClientEgress } from './client-output.ts';
 import { createOpenAIResponsesWsSession } from './items/store.ts';
+import { OPENAI_RESPONSES_REASONING_INCLUDED_HEADER, OPENAI_RESPONSES_REASONING_INCLUDED_VALUE } from './response-headers.ts';
 import { createOpenAIResponsesResponseId } from './response-id.ts';
 import { PreviousResponseNotFoundError } from './serve-prep.ts';
 import { openaiResponsesServe } from './serve.ts';
@@ -103,6 +104,7 @@ export const openaiResponsesWebSocket = async (c: AuthedContext): Promise<Respon
   }
 
   const events = createOpenAIResponsesWebSocketEvents(c);
+  c.header(OPENAI_RESPONSES_REASONING_INCLUDED_HEADER, OPENAI_RESPONSES_REASONING_INCLUDED_VALUE);
   if (_openai_responsesWebSocketUpgradeResolver !== null) {
     return await _openai_responsesWebSocketUpgradeResolver(c, events);
   }
