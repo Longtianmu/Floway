@@ -38,3 +38,8 @@ export {
 export type * from './model-prefix.ts';
 
 export { MODEL_PREFIX_REGEX, MODEL_PREFIX_MAX_LENGTH, normalizeModelPrefix } from './model-prefix.ts';
+
+export { upstreamMetricAxisPriority } from './upstream-metrics.ts';
+export type { UpstreamMetricDisplay, UpstreamMetricUnit } from './upstream-metrics.ts';
+export { normalizeUpstreamMetricIdentity, upstreamMetricIdentityKey } from './upstream-metric-identity.ts';
+export type { UpstreamMetricIdentity, UpstreamMetricLabels, UpstreamMetricLabelValue } from './upstream-metric-identity.ts';

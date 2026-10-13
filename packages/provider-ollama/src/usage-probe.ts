@@ -7,7 +7,8 @@ import { readOllamaAccountUsage } from './account-usage.ts';
 import { assertOllamaUpstreamRecord, type OllamaUpstreamConfig } from './config.ts';
 import { ollamaFetchUsage, ollamaFetchBalance } from './fetch.ts';
 import { type OllamaUsageObservation, type OllamaUpstreamState, readOllamaUpstreamState } from './state.ts';
-import { type Fetcher, getProviderRepo, identityWrapUpstreamCall, runScheduledUsageRefresh, type ProviderScheduledOptions, type UpstreamRecord } from '@floway-dev/provider';
+import { ollamaMetrics } from './upstream-metrics.ts';
+import { type Fetcher, getProviderRepo, identityWrapUpstreamCall, recordUpstreamMetrics, runScheduledUsageRefresh, type ProviderScheduledOptions, type UpstreamRecord } from '@floway-dev/provider';
 
 // Reading account usage takes two things the operator states: that this upstream
 // is an Ollama Cloud account (`cloudUsage` — the endpoint belongs to
@@ -37,11 +38,15 @@ const readOllamaObservation = async (response: Response, path: string): Promise<
 // A single outcome commits both upstream bodies. Failed reads retain the last
 // successful pair, and older attempts cannot replace a newer observation.
 const persistUsageReading = async (upstreamId: string, attemptedAt: number, observation: OllamaUsageObservation | null, error: string | null): Promise<void> => {
+  let accepted = false;
   await getProviderRepo().upstreams.saveState(upstreamId, current => {
+    accepted = false;
     const state = readOllamaUpstreamState(current);
     if (state.usageProbe && state.usageProbe.attemptedAt > attemptedAt) return current;
+    accepted = true;
     return { ...state, usageProbe: { attemptedAt, observation: observation ?? state.usageProbe?.observation ?? null, error } } satisfies OllamaUpstreamState;
   });
+  if (accepted && observation !== null) await recordUpstreamMetrics(upstreamId, ollamaMetrics(observation.data), observation.fetchedAt);
 };
 
 export const refreshOllamaUsageProbe = async (upstreamId: string, config: OllamaUpstreamConfig, fetcher: Fetcher): Promise<OllamaUsageObservation> => {

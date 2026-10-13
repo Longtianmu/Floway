@@ -38,7 +38,9 @@ const cloudRecord = (overrides: Partial<UpstreamRecord> = {}): UpstreamRecord =>
 const withStateRepo = (state: unknown = null) => {
   let current = state;
   const writes: unknown[] = [];
+  const metrics: Array<{ name: string; labels: Record<string, string | number | boolean | null>; value: number; timestamp: number }> = [];
   initProviderRepo(() => ({
+    recordUpstreamMetric: async (_upstreamId, name, labels, value, timestamp) => { metrics.push({ name, labels: { ...labels }, value, timestamp }); },
     upstreams: {
       getById: async () => ({ ...cloudRecord(), state: current }),
       saveState: async (_id, mutate) => {
@@ -47,7 +49,7 @@ const withStateRepo = (state: unknown = null) => {
       },
     },
   }));
-  return { read: () => readOllamaUpstreamState(current), writes };
+  return { read: () => readOllamaUpstreamState(current), writes, metrics };
 };
 
 test('the usage refresh reads both Ollama endpoints with the upstream API key for an unsaved draft', async () => {
@@ -81,6 +83,10 @@ test.each(['/api/usage', '/api/balance'])('a failure of %s preserves both prior 
   assertEquals(observed.usageProbe?.observation?.data.usage, USAGE_BODY);
   assertEquals(observed.usageProbe?.observation?.data.balance, BALANCE_BODY);
   assertEquals(repo.writes.length, 1);
+  assertEquals(repo.metrics.map(({ name, labels, value }) => [name, labels, value]), [
+    ['balance.usd', { source: 'included' }, 18], ['allowance.usd', { source: 'included' }, 60],
+    ['balance.usd', { source: 'purchased' }, 25], ['activity.cost_usd', { range: '7d' }, 3.25],
+  ]);
 
   await withMockedFetch(
     request => new URL(request.url).pathname === failedPath
@@ -92,6 +98,7 @@ test.each(['/api/usage', '/api/balance'])('a failure of %s preserves both prior 
   assertEquals(after.usageProbe?.observation, observed.usageProbe?.observation);
   assertEquals(after.usageProbe?.error, `Ollama ${failedPath} returned 401: invalid credentials`);
   assertEquals(repo.writes.length, 2);
+  assertEquals(repo.metrics.length, 4);
 });
 
 test('usage is probed when the operator enabled it and a key is configured, and not otherwise', () => {

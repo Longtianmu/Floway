@@ -62,7 +62,7 @@ describe('upstream readout by provider', () => {
     const detail = readoutOf(record).signals[0].detail;
     expect(detail).not.toContain(' - ');
     expect(detail.split('\n').map(normalizeSpaces)).toEqual([
-      'premium interactions: 71% remaining',
+      'Allowance: 71% remaining',
       'Resets Sep 1, 2026, 12:00:00 AM',
       'Observed Jul 28, 2026, 11:00:00 AM',
     ]);

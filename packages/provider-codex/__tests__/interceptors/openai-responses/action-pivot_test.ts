@@ -54,6 +54,7 @@ const baseRecord: UpstreamRecord = {
 
 beforeEach(() => {
   initProviderRepo(() => ({
+    recordUpstreamMetric: async () => {},
     upstreams: createUpstreamStateRepoStub(() => baseRecord, () => {}),
   }));
 });

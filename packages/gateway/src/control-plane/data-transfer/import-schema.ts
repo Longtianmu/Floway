@@ -6,7 +6,7 @@ import { parseDisabledPublicModelIdsWire } from '../../repo/disabled-public-mode
 import { isOpenAIResponsesRetentionSeconds, OPENAI_RESPONSES_RETENTION_MAX_SECONDS, OPENAI_RESPONSES_RETENTION_MIN_SECONDS } from '../../repo/openai-responses-retention.ts';
 import { isDirectFallbackId, normalizeProxyFallbackList } from '../../repo/proxy-fallback-list.ts';
 import { SEED_ADMIN_USER_ID } from '../../repo/seed-admin.ts';
-import type { ApiKey, PerformanceMetric, PerformanceTelemetryRecord, UsageRecord, User, WebSearchUsageRecord } from '../../repo/types.ts';
+import type { ApiKey, UpstreamMetricRecord, PerformanceMetric, PerformanceTelemetryRecord, UsageRecord, User, WebSearchUsageRecord } from '../../repo/types.ts';
 import { PASSWORD_HASH_SCHEME } from '../../shared/passwords.ts';
 import { RETENTION_MAX_SECONDS } from '../../shared/retention.ts';
 import { parseServerSecret } from '../../shared/server-secret.ts';
@@ -15,7 +15,7 @@ import { USERNAME_PATTERN } from '../schemas.ts';
 import { isRecord } from '../shared/field-validators.ts';
 import { parseUpstreamIdsValue } from '../shared/upstream-ids.ts';
 import { BILLING_METRICS, canonicalizePricingSelector, type BillingMetric, parseNonNegativeDecimalString, type PricingSelector } from '@floway-dev/protocols/common';
-import { ALL_PROVIDER_KINDS, normalizeModelPrefix, normalizeUpstreamHue, parseFlagOverridesWire, parsePerformanceOperation, type ProxyFallbackEntry, type UpstreamProviderKind, type UpstreamRecord } from '@floway-dev/provider';
+import { ALL_PROVIDER_KINDS, normalizeModelPrefix, normalizeUpstreamHue, normalizeUpstreamMetricIdentity, parseFlagOverridesWire, parsePerformanceOperation, type ProxyFallbackEntry, type UpstreamProviderKind, type UpstreamRecord } from '@floway-dev/provider';
 import { assertAzureUpstreamRecord } from '@floway-dev/provider-azure';
 import { assertClaudeCodeUpstreamRecord, assertClaudeCodeUpstreamState } from '@floway-dev/provider-claude-code';
 import { assertCodexUpstreamRecord, assertCodexUpstreamState } from '@floway-dev/provider-codex';
@@ -38,6 +38,7 @@ export interface ParsedImportData {
   proxies: SerializedProxy[];
   usage: UsageRecord[];
   searchUsage: WebSearchUsageRecord[];
+  upstreamMetrics: UpstreamMetricRecord[];
   performance: PerformanceTelemetryRecord[];
   performanceIncluded: boolean;
   searchConfig: WebSearchConfig;
@@ -456,6 +457,18 @@ const parseCollection = <T>(
   return { type: 'ok', records };
 };
 
+const upstreamMetricWireSchema = z.object({
+  upstreamId: z.string().min(1),
+  name: z.unknown(),
+  labels: z.unknown(),
+  timestamp: z.number().int().nonnegative(),
+  value: z.number(),
+}).strict();
+const upstreamMetricsSchema = parsedBy((value): UpstreamMetricRecord => {
+  const record = parseValue(upstreamMetricWireSchema, value);
+  return { ...record, ...normalizeUpstreamMetricIdentity(record.name, record.labels) };
+});
+
 export const parseImportData = (value: unknown): ImportDataParseResult => {
   if (!isRecord(value)) return { type: 'invalid', error: 'data is required' };
 
@@ -509,6 +522,8 @@ export const parseImportData = (value: unknown): ImportDataParseResult => {
 
   const searchUsage = parseCollection('searchUsage', searchUsageSchema, value.searchUsage, { arrayError: 'searchUsage must be an array' });
   if (searchUsage.type === 'invalid') return searchUsage;
+  const upstreamMetrics = parseCollection('upstreamMetrics', upstreamMetricsSchema, value.upstreamMetrics, { arrayError: 'upstreamMetrics must be an array' });
+  if (upstreamMetrics.type === 'invalid') return upstreamMetrics;
 
   let searchConfig: WebSearchConfig;
   try {
@@ -541,6 +556,7 @@ export const parseImportData = (value: unknown): ImportDataParseResult => {
       proxies: proxies.records,
       usage: usage.records,
       searchUsage: searchUsage.records,
+      upstreamMetrics: upstreamMetrics.records,
       performance,
       performanceIncluded: value.performanceIncluded,
       searchConfig,

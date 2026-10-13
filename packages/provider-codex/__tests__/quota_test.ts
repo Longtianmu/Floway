@@ -58,7 +58,7 @@ beforeEach(() => {
   repo = createUpstreamStateRepoStub(() => current, state => {
     current = { ...current!, state: state as CodexUpstreamState };
   });
-  initProviderRepo(() => ({ upstreams: repo }));
+  initProviderRepo(() => ({ recordUpstreamMetric: async () => {}, upstreams: repo }));
 });
 
 afterEach(() => vi.restoreAllMocks());
@@ -410,4 +410,15 @@ describe('clearCodexQuota', () => {
     await clearCodexQuota(upstreamId, accountId);
     expect(repo.writes).toEqual([]);
   });
+});
+
+test('publishes self-contained usage observations with capture timestamps and retries failed delivery', async () => {
+  const failure = new Error('Usage storage unavailable');
+  const recordUpstreamMetric = vi.fn().mockRejectedValueOnce(failure).mockResolvedValue(undefined);
+  initProviderRepo(() => ({ upstreams: repo, recordUpstreamMetric }));
+  const snapshot = { observed_at: '2026-06-05T00:00:00.000Z', active_limit: 'codex', primary_used_percent: 42, primary_window_minutes: 300 };
+  await expect(putCodexQuota(upstreamId, accountId, snapshot)).rejects.toBe(failure);
+  await putCodexQuota(upstreamId, accountId, snapshot);
+  expect(recordUpstreamMetric).toHaveBeenCalledTimes(2);
+  expect(recordUpstreamMetric).toHaveBeenLastCalledWith(upstreamId, 'quota.window.used_percent', { limit: 'codex', window_seconds: 18_000 }, 42, Date.parse(snapshot.observed_at));
 });

@@ -741,7 +741,7 @@ export const updateAliasBody = aliasBodyCore.superRefine(aliasBodyRulesRefinemen
 // --- data transfer ---
 
 export const importBody = z.object({
-  version: z.literal(20, { error: 'version must be 20 — older export formats are not supported; re-export from the current deployment' }),
+  version: z.literal(21, { error: 'version must be 21 — older export formats are not supported; re-export from the current deployment' }),
   mode: z.enum(['merge', 'replace'], { error: "mode must be 'merge' or 'replace'" }),
   data: z.unknown().optional(),
 });
@@ -838,3 +838,10 @@ export const performanceQuery = z.object({
   filter_operation: filterValues(z.string()),
   filter_runtime_location: filterValues(z.string()),
 });
+
+export const upstreamMetricsQuery = z.object({
+  upstream_id: z.string().min(1),
+  start: z.string().regex(/^-?\d+$/).transform(Number).pipe(z.number().int()),
+  end: z.string().regex(/^-?\d+$/).transform(Number).pipe(z.number().int()),
+  step: z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().positive()),
+}).refine(query => query.end > query.start, { message: 'Metrics interval end must be later than start' });

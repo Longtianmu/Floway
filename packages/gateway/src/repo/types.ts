@@ -1,7 +1,7 @@
 import type { WebSearchConfig, WebSearchProviderName } from '../shared/web-search-providers.ts';
 import type { AgentSetupRepository } from '@floway-dev/agent-setup';
 import type { AliasSelection, AliasTarget, AnnouncedMetadata, BillingMetric, DecimalString, ModelKind, PricingSelector } from '@floway-dev/protocols/common';
-import type { PerformanceTelemetryContext, UpstreamModelsCache, UpstreamRecord } from '@floway-dev/provider';
+import type { PerformanceTelemetryContext, UpstreamMetricIdentity, UpstreamModelsCache, UpstreamRecord } from '@floway-dev/provider';
 
 // Provider config, flag overrides, and catalog transport advance this version;
 // runtime state and non-model metadata do not.
@@ -561,7 +561,24 @@ export interface ScheduledMaintenanceRepo {
 // here satisfy that contract. Re-exported so the repo layer imports one source.
 export type { AgentSetupMutation, AgentSetupRecord, AgentSetupRenewal, AgentSetupRepository } from '@floway-dev/agent-setup';
 
+export interface UpstreamMetricRecord extends UpstreamMetricIdentity {
+  upstreamId: string;
+  timestamp: number;
+  value: number;
+}
+
+export interface UpstreamMetricsRepo {
+  listAll(): Promise<UpstreamMetricRecord[]>;
+  set(record: UpstreamMetricRecord): Promise<void>;
+  deleteAll(): Promise<void>;
+  record(record: UpstreamMetricRecord): Promise<void>;
+  // The latest sample of each series in every `step`-wide bucket counted from
+  // `start`, which is Prometheus's range-query semantics for gauges.
+  query(upstreamId: string, start: number, end: number, step: number): Promise<UpstreamMetricRecord[]>;
+}
+
 export interface Repo {
+  upstreamMetrics: UpstreamMetricsRepo;
   apiKeys: ApiKeyRepo;
   users: UsersRepo;
   sessions: SessionsRepo;

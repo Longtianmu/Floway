@@ -66,6 +66,7 @@ import {
   encodeUpstreamModelsCache,
 } from './upstream-codecs.ts';
 import { serializeStoredConfig, serializeStoredState } from './upstream-json.ts';
+import { SqlUpstreamMetricsRepo } from './upstream-metrics-sql.ts';
 import { parseUpstreamHue, parseUpstreamKind } from './upstream-parse.ts';
 import { usageMetricRows } from './usage-metrics.ts';
 import { querySqlUsageOverview } from './usage-overview-sql.ts';
@@ -1691,6 +1692,7 @@ class SqlAgentSetupRepo implements AgentSetupRepository {
 }
 
 export class SqlRepo implements Repo {
+  upstreamMetrics: SqlUpstreamMetricsRepo;
   users: UsersRepo;
   sessions: SessionsRepo;
   apiKeys: ApiKeyRepo;
@@ -1710,6 +1712,7 @@ export class SqlRepo implements Repo {
   agentSetup: AgentSetupRepository;
 
   constructor(db: SqlDatabase) {
+    this.upstreamMetrics = new SqlUpstreamMetricsRepo(db);
     this.users = new SqlUsersRepo(db);
     this.sessions = new SqlSessionsRepo(db);
     this.apiKeys = new SqlApiKeyRepo(db);

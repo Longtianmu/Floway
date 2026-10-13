@@ -60,6 +60,7 @@ test('Copilot provider terminal dispatches on post-chain ctx.action (interceptor
     },
   };
   initProviderRepo(() => ({
+    recordUpstreamMetric: async () => {},
     upstreams: {
       getById: async () => upstream,
       saveState: async () => {},

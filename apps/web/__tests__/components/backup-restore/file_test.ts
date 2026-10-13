@@ -9,6 +9,7 @@ const data = {
   proxies: [],
   usage: [],
   searchUsage: [],
+  upstreamMetrics: [],
   performanceIncluded: false,
   searchConfig: null,
 };

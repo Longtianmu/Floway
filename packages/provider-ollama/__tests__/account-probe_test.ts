@@ -50,6 +50,7 @@ const ME_BODY = {
 const withStateRepo = (state: unknown = null) => {
   let current = state;
   initProviderRepo(() => ({
+    recordUpstreamMetric: async () => {},
     upstreams: {
       getById: async () => ({ ...cloudRecord(), state: current }),
       saveState: async (_id, mutate) => {

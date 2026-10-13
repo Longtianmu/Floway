@@ -71,6 +71,7 @@ beforeEach(() => {
   vi.useRealTimers();
   currentRecord = makeRecord({ accounts: [{ ...activeAccount }] });
   initProviderRepo(() => ({
+    recordUpstreamMetric: async () => {},
     upstreams: createUpstreamStateRepoStub(() => currentRecord, state => {
       currentRecord = { ...currentRecord, state: state as CodexUpstreamState };
     }),

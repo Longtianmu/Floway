@@ -73,7 +73,7 @@ import { bucketForTtftMs, bucketForTpotUs } from '../../src/shared/performance-h
 import { assertWebSearchProviderName, type WebSearchConfig } from '../../src/shared/web-search-providers.ts';
 import { AgentSetupTokenCollisionError } from '@floway-dev/agent-setup';
 import { addDecimalStrings, canonicalPricingSelectorKey, canonicalizePricingSelector, multiplyDecimalStrings, tokenUsageUnattributedUserId, usageUpstreamDimensionValue, type BillingMetric, type DecimalString, type PricingSelector } from '@floway-dev/protocols/common';
-import { UpstreamGoneError, type UpstreamRecord } from '@floway-dev/provider';
+import { normalizeUpstreamMetricIdentity, upstreamMetricIdentityKey, UpstreamGoneError, type UpstreamRecord } from '@floway-dev/provider';
 
 const SEED_ADMIN_USER: User = {
   id: SEED_ADMIN_USER_ID,
@@ -1482,6 +1482,33 @@ class MemoryAgentSetupRepo implements AgentSetupRepository {
 }
 
 export class InMemoryRepo implements Repo {
+  private upstreamMetricRecords: import('../../src/repo/types.ts').UpstreamMetricRecord[] = [];
+  upstreamMetrics: import('../../src/repo/types.ts').UpstreamMetricsRepo = {
+    listAll: async () => this.upstreamMetricRecords.toSorted((a, b) => a.timestamp - b.timestamp || a.upstreamId.localeCompare(b.upstreamId) || upstreamMetricIdentityKey(a).localeCompare(upstreamMetricIdentityKey(b))),
+    set: async record => {
+      const identity = normalizeUpstreamMetricIdentity(record.name, record.labels);
+      const identityKey = upstreamMetricIdentityKey(identity);
+      this.upstreamMetricRecords = this.upstreamMetricRecords.filter(row => row.upstreamId !== record.upstreamId || upstreamMetricIdentityKey(row) !== identityKey || Math.floor(row.timestamp / 60_000) !== Math.floor(record.timestamp / 60_000));
+      this.upstreamMetricRecords.push({ ...record, ...identity });
+    },
+    deleteAll: async () => { this.upstreamMetricRecords = []; },
+    record: async record => {
+      const identityKey = upstreamMetricIdentityKey(record);
+      const bucket = Math.floor(record.timestamp / 60_000);
+      const current = this.upstreamMetricRecords.find(row => row.upstreamId === record.upstreamId && upstreamMetricIdentityKey(row) === identityKey && Math.floor(row.timestamp / 60_000) === bucket);
+      if (current !== undefined && current.timestamp > record.timestamp) return;
+      await this.upstreamMetrics.set(record);
+    },
+    query: async (upstreamId, start, end, step) => {
+      const latest = new Map<string, import('../../src/repo/types.ts').UpstreamMetricRecord>();
+      for (const record of this.upstreamMetricRecords) {
+        if (record.upstreamId !== upstreamId || record.timestamp < start || record.timestamp >= end) continue;
+        const key = `${upstreamMetricIdentityKey(record)}\0${Math.floor((record.timestamp - start) / step)}`;
+        if ((latest.get(key)?.timestamp ?? -Infinity) < record.timestamp) latest.set(key, record);
+      }
+      return [...latest.values()].toSorted((a, b) => a.timestamp - b.timestamp);
+    },
+  };
   apiKeys: ApiKeyRepo;
   users: UsersRepo;
   sessions: SessionsRepo;
