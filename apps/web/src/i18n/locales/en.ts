@@ -92,7 +92,7 @@ const en = {
         requests: 'Requests',
         usage: 'Usage',
         performance: 'Performance',
-        users: 'Users',
+        users: 'Users & Groups',
         backupRestore: 'Backup / Restore',
         settings: 'Settings',
       },
@@ -118,7 +118,7 @@ const en = {
         performance:
             'Monitor latency, throughput, and upstream performance signals',
         users:
-            'Manage console users, permissions, telemetry access, and upstream scopes',
+            'Manage console users, groups, and upstream access',
         backupRestore:
             'Download a full copy of everything this gateway holds, or restore it from an earlier export',
         unavailable: 'This view could not be loaded',
@@ -222,6 +222,8 @@ const en = {
         },
       },
       users: {
+        search: 'Search users',
+        tabs: { users: 'Users', groups: 'Groups' },
         empty: 'No users found',
         actions: {
           create: 'New user',
@@ -229,7 +231,7 @@ const en = {
           resetPasswordNamed: 'Reset the password of user {{name}}',
           delete: 'Delete user',
           deleteNamed: 'Delete user {{name}}',
-          refresh: 'Refresh users',
+          refresh: 'Refresh users and groups',
           save: 'Save changes',
         },
         toast: {
@@ -254,6 +256,7 @@ const en = {
           label: 'Floway users',
           username: 'Username',
           role: 'Role',
+          groups: 'Groups',
           upstreams: 'Upstream access',
           created: 'Created',
           actions: 'Actions',
@@ -293,6 +296,27 @@ const en = {
               'Delete {{username}}? Their sessions will be revoked and their API keys will stop working. This cannot be undone.',
         },
         createdDefaultKey: 'A Default API key is created with each new user.',
+      },
+      groupsManagement: {
+        more_one: 'Show {{count, number}} more group',
+        more_other: 'Show {{count, number}} more groups',
+        remove: { title: 'Remove member', message: 'Remove {{username}} from {{group}}?', confirm: 'Remove' },
+        empty: 'No groups found',
+        search: 'Search groups',
+        searchJoin: 'Search and join a group',
+        noMatches: 'No matching groups',
+        allJoined: 'Already in every group',
+        invalidName: 'Enter a name between 1 and 64 characters',
+        actions: { create: 'New group', save: 'Save changes', edit: 'Edit group', delete: 'Delete group', add: 'Add member', remove: 'Remove {{username}} from group', leave: 'Leave {{name}}' },
+        members: { count_one: '{{count, number}} member', count_other: '{{count, number}} members', empty: 'This group has no members', allAdded: 'All users are already members', noMatches: 'No matching users' },
+        dialog: { createTitle: 'New group', editTitle: 'Edit {{name}}' },
+        fields: { name: 'Name', members: 'Members', hue: 'Color' },
+        delete: { title: 'Delete group', message: 'Delete {{name}}? Its membership will be removed.' },
+        toast: {
+          create: { pending: 'Creating group {{name}}', success: 'Created group {{name}}' },
+          edit: { pending: 'Saving group {{name}}', success: 'Saved group {{name}}' },
+          delete: { pending: 'Deleting group {{name}}', success: 'Deleted group {{name}}' },
+        },
       },
       upstreamAccess: {
         title: 'Limit available upstreams',

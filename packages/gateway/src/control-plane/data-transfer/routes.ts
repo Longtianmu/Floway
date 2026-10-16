@@ -13,19 +13,21 @@ import { parseWebSearchConfigDefault, parseWebSearchConfigStrict } from '../../d
 import type { WebSearchConfig } from '../../data-plane/tools/web-search/types.ts';
 import { notifyDisabledBestEffort } from '../../dump/registry.ts';
 import { type CtxWithJson, type CtxWithQuery } from '../../middleware/zod-validator.ts';
+import { groupNameKey } from '../../repo/group-names.ts';
 import { getRepo } from '../../repo/index.ts';
 import { DIRECT_FALLBACK_IDS } from '../../repo/proxy-fallback-list.ts';
-import type { ApiKey, UpstreamMetricRecord, PerformanceTelemetryRecord, UsageRecord, User, WebSearchUsageRecord } from '../../repo/types.ts';
+import type { ApiKey, Group, UpstreamMetricRecord, PerformanceTelemetryRecord, UsageRecord, User, WebSearchUsageRecord } from '../../repo/types.ts';
 import { type exportQuery, type importBody } from '../schemas.ts';
 import { saveUpstreams } from '../shared/save-upstreams.ts';
 import { type FullSerializedUpstreamRecord, upstreamRecordToFullJson } from '../upstreams/serialize.ts';
 import type { UpstreamRecord } from '@floway-dev/provider';
 
 interface ExportPayload {
-  version: 21;
+  version: 22;
   exportedAt: string;
   data: {
     users: User[];
+    groups: Array<Group & { memberIds: number[] }>;
     apiKeys: ApiKey[];
     upstreams: FullSerializedUpstreamRecord[];
     proxies: SerializedProxy[];
@@ -38,7 +40,7 @@ interface ExportPayload {
   };
 }
 
-const EXPORT_VERSION = 21;
+const EXPORT_VERSION = 22;
 
 const validateApiKeyIdentities = (records: readonly ApiKey[], existing: readonly ApiKey[], mode: 'merge' | 'replace'): string | null => {
   const ids = new Map<string, number>();
@@ -100,9 +102,11 @@ const validateProxyFallbackReferences = (
 export const exportData = async (c: CtxWithQuery<typeof exportQuery>) => {
   const repo = getRepo();
   const includePerformance = c.req.valid('query').include_performance === '1';
+  const memberships = await repo.groups.listMemberships();
 
-  const [users, apiKeys, usage, webSearchUsage, upstreamMetrics, performance, rawWebSearchConfig, upstreams, proxies] = await Promise.all([
+  const [users, groups, apiKeys, usage, webSearchUsage, upstreamMetrics, performance, rawWebSearchConfig, upstreams, proxies] = await Promise.all([
     repo.users.listIncludingDeleted(),
+    repo.groups.listIncludingDeleted(),
     repo.apiKeys.listIncludingDeleted(),
     repo.usage.listAll(),
     repo.webSearchUsage.listAll(),
@@ -118,6 +122,7 @@ export const exportData = async (c: CtxWithQuery<typeof exportQuery>) => {
     exportedAt: new Date().toISOString(),
     data: {
       users,
+      groups: groups.map(group => ({ ...group, memberIds: memberships.get(group.id) ?? [] })),
       apiKeys,
       upstreams: upstreams.map(upstreamRecordToFullJson),
       proxies: proxies.map(proxy => ({ id: proxy.id, name: proxy.name, url: proxy.url, dial_timeout_seconds: proxy.dialTimeoutSeconds })),
@@ -137,7 +142,7 @@ export const importData = async (c: CtxWithJson<typeof importBody>) => {
   const { mode, data: rawData } = c.req.valid('json');
   const parsed = parseImportData(rawData);
   if (parsed.type === 'invalid') return c.json({ error: parsed.error }, 400);
-  const { users, apiKeys, upstreams, proxies, usage, searchUsage, upstreamMetrics, performance, performanceIncluded, searchConfig } = parsed.data;
+  const { users, groups, apiKeys, upstreams, proxies, usage, searchUsage, upstreamMetrics, performance, performanceIncluded, searchConfig } = parsed.data;
 
   const repo = getRepo();
   // Merge mode needs each key's prior dump policy to identify transitions that
@@ -145,6 +150,16 @@ export const importData = async (c: CtxWithJson<typeof importBody>) => {
   const preImportKeys = await repo.apiKeys.listIncludingDeleted();
   const apiKeyIdentityError = validateApiKeyIdentities(apiKeys, mode === 'merge' ? preImportKeys : [], mode);
   if (apiKeyIdentityError) return c.json({ error: `invalid apiKeys: ${apiKeyIdentityError}` }, 400);
+  const importedGroupIds = new Set(groups.map(group => group.id));
+  const retainedGroups = mode === 'merge' ? (await repo.groups.list()).filter(group => !importedGroupIds.has(group.id)) : [];
+  const groupNames = new Map<string, number>();
+  for (const group of [...retainedGroups, ...groups]) {
+    if (group.deletedAt !== null) continue;
+    const key = groupNameKey(group.name);
+    const previousId = groupNames.get(key);
+    if (previousId !== undefined) return c.json({ error: `invalid groups: active group names conflict for ids ${previousId} and ${group.id}` }, 400);
+    groupNames.set(key, group.id);
+  }
   const preImportRetentionById = new Map<string, number | null>(preImportKeys.map(key => [key.id, key.dumpRetentionSeconds]));
 
   const existingProxyIdsForRefs = mode === 'merge' ? (await repo.proxies.list()).map(proxy => proxy.id) : [];
@@ -168,6 +183,7 @@ export const importData = async (c: CtxWithJson<typeof importBody>) => {
       repo.proxyBackoffs.deleteAll(),
       repo.openaiResponsesSnapshots.deleteAll(),
       repo.openaiResponsesItems.deleteAll(),
+      repo.groups.deleteAll(),
       repo.users.deleteAll(),
     ];
     if (performanceIncluded) deletes.push(repo.performance.deleteAll());
@@ -176,6 +192,7 @@ export const importData = async (c: CtxWithJson<typeof importBody>) => {
 
   // Users precede their API keys, and proxies precede upstream fallback refs.
   for (const user of users) await repo.users.save(user);
+  await repo.groups.restore(groups);
   for (const proxy of proxies) {
     await repo.proxies.save({
       id: proxy.id,
@@ -205,6 +222,7 @@ export const importData = async (c: CtxWithJson<typeof importBody>) => {
     ok: true,
     imported: {
       users: users.length,
+      groups: groups.length,
       apiKeys: apiKeys.length,
       upstreams: upstreams.length,
       proxies: proxies.length,

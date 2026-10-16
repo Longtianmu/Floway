@@ -3,6 +3,7 @@ import { partitionTelemetryOverviewRecords } from './telemetry-overview-oracle.t
 import { buildKeyToUserMap } from '../../src/control-plane/shared/key-to-user.ts';
 import { normalizeDisabledPublicModelIds } from '../../src/repo/disabled-public-models.ts';
 import { normalizeFlagOverrides } from '../../src/repo/flag-overrides.ts';
+import { groupNameKey } from '../../src/repo/group-names.ts';
 import { MODEL_CATALOG_REVISION, storedModelErrorMessage } from '../../src/repo/models-cache-contract.ts';
 import { matchesModelsRefreshInputs } from '../../src/repo/models-refresh-inputs.ts';
 import {
@@ -29,6 +30,9 @@ import type {
   AgentSetupRenewal,
   AgentSetupRepository,
   BackoffRow,
+  Group,
+  GroupWithMembers,
+  GroupsRepo,
   ModelsRefreshFailureInput,
   ModelsRefreshSuccessInput,
   ModelAliasesRepo,
@@ -65,6 +69,7 @@ import type {
   UsageOverviewResult,
   UsageRepo,
   User,
+  UserDirectory,
   UsersRepo,
 } from '../../src/repo/types.ts';
 import { serializeStoredConfig, serializeStoredState } from '../../src/repo/upstream-json.ts';
@@ -92,10 +97,15 @@ const SEED_ADMIN_USER: User = {
 const usernamesMatch = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
 
 class MemoryUsersRepo implements UsersRepo {
+  constructor(private groups: GroupsRepo) {}
   private users: User[] = [{ ...SEED_ADMIN_USER }];
 
+  snapshot(): User[] {
+    return this.users.filter(u => u.deletedAt === null).map(u => ({ ...u }));
+  }
+
   list(): Promise<User[]> {
-    return Promise.resolve(this.users.filter(u => u.deletedAt === null).map(u => ({ ...u })));
+    return Promise.resolve(this.snapshot());
   }
 
   listIncludingDeleted(): Promise<User[]> {
@@ -121,7 +131,7 @@ class MemoryUsersRepo implements UsersRepo {
     return Promise.resolve({ ...user });
   }
 
-  async save(user: User): Promise<void> {
+  async save(user: User, groupIds?: readonly number[]): Promise<void> {
     // Match SQL's partial unique index `WHERE deleted_at IS NULL`: a clash is
     // only meaningful when the new row is also active. A soft-deleted import
     // can carry a username already in use by an active row without colliding.
@@ -130,6 +140,7 @@ class MemoryUsersRepo implements UsersRepo {
     const i = this.users.findIndex(u => u.id === user.id);
     if (i >= 0) this.users[i] = { ...user };
     else this.users.push({ ...user });
+    if (groupIds !== undefined) await this.groups.replaceUserGroups(user.id, groupIds);
   }
 
   async softDelete(id: number): Promise<boolean> {
@@ -141,6 +152,134 @@ class MemoryUsersRepo implements UsersRepo {
 
   deleteAll(): Promise<void> {
     this.users = [];
+    return Promise.resolve();
+  }
+}
+
+class MemoryGroupsRepo implements GroupsRepo {
+  private groups: Group[] = [];
+  private members = new Map<number, Set<number>>();
+
+  snapshot(): GroupWithMembers[] {
+    return this.groups.filter(group => group.deletedAt === null).map(group => ({
+      ...group, memberIds: [...(this.members.get(group.id) ?? [])].toSorted((a, b) => a - b),
+    }));
+  }
+
+  list(): Promise<Group[]> {
+    return Promise.resolve(this.groups.filter(group => group.deletedAt === null).map(group => ({ ...group })));
+  }
+
+  listIncludingDeleted(): Promise<Group[]> {
+    return Promise.resolve(this.groups.map(group => ({ ...group })));
+  }
+
+  getById(id: number): Promise<Group | null> {
+    const group = this.groups.find(candidate => candidate.id === id && candidate.deletedAt === null);
+    return Promise.resolve(group ? { ...group } : null);
+  }
+
+  findByName(name: string): Promise<Group | null> {
+    const group = this.groups.find(candidate => groupNameKey(candidate.name) === groupNameKey(name) && candidate.deletedAt === null);
+    return Promise.resolve(group ? { ...group } : null);
+  }
+
+  async create(name: string, hue: number): Promise<Group> {
+    if (this.groups.some(group => groupNameKey(group.name) === groupNameKey(name) && group.deletedAt === null)) {
+      throw new Error(`group name taken: ${name}`);
+    }
+    const group: Group = {
+      id: this.groups.reduce((maximum, candidate) => Math.max(maximum, candidate.id), 0) + 1,
+      name,
+      hue,
+      createdAt: new Date().toISOString(),
+      deletedAt: null,
+    };
+    this.groups.push(group);
+    return { ...group };
+  }
+
+  async save(group: Group): Promise<void> {
+    const collision = this.groups.find(candidate => groupNameKey(candidate.name) === groupNameKey(group.name) && candidate.deletedAt === null && candidate.id !== group.id);
+    if (collision && group.deletedAt === null) throw new Error(`group name taken: ${group.name}`);
+    const index = this.groups.findIndex(candidate => candidate.id === group.id);
+    if (index < 0) this.groups.push({ ...group });
+    else this.groups[index] = { ...group };
+  }
+
+  async restore(groups: readonly GroupWithMembers[]): Promise<void> {
+    const records = new Map(this.groups.map(group => [group.id, group]));
+    for (const { memberIds: _memberIds, ...group } of groups) records.set(group.id, group);
+    const names = new Set<string>();
+    for (const group of records.values()) {
+      if (group.deletedAt !== null) continue;
+      const key = groupNameKey(group.name);
+      if (names.has(key)) throw new Error(`group name taken: ${group.name}`);
+      names.add(key);
+    }
+    this.groups = [...records.values()];
+    for (const group of groups) this.members.set(group.id, new Set(group.memberIds));
+  }
+
+  softDelete(id: number): Promise<boolean> {
+    const index = this.groups.findIndex(group => group.id === id && group.deletedAt === null);
+    if (index < 0) return Promise.resolve(false);
+    this.groups[index] = { ...this.groups[index], deletedAt: new Date().toISOString() };
+    this.members.delete(id);
+    return Promise.resolve(true);
+  }
+
+  listMemberIds(groupId: number): Promise<number[]> {
+    return Promise.resolve([...(this.members.get(groupId) ?? [])].toSorted((a, b) => a - b));
+  }
+
+  async listMemberships(): Promise<Map<number, number[]>> {
+    return new Map([...this.members].map(([id, members]) => [id, [...members].toSorted((a, b) => a - b)]));
+  }
+
+  async setMember(groupId: number, userId: number, included: boolean): Promise<void> {
+    const members = new Set(this.members.get(groupId));
+    if (included) members.add(userId);
+    else members.delete(userId);
+    this.members.set(groupId, members);
+  }
+
+  async replaceUserGroups(userId: number, groupIds: readonly number[]): Promise<void> {
+    for (const group of this.groups) await this.setMember(group.id, userId, groupIds.includes(group.id));
+  }
+
+  listIdsByUserId(userId: number): Promise<number[]> {
+    const active = new Set(this.groups.filter(group => group.deletedAt === null).map(group => group.id));
+    return Promise.resolve([...this.members.entries()]
+      .filter(([groupId, userIds]) => active.has(groupId) && userIds.has(userId))
+      .map(([groupId]) => groupId)
+      .toSorted((a, b) => a - b));
+  }
+
+  async listIdsByUserIds(userIds: readonly number[]): Promise<Map<number, number[]>> {
+    const active = new Set(this.groups.filter(group => group.deletedAt === null).map(group => group.id));
+    return new Map(userIds.map(userId => [userId, [...this.members.entries()]
+      .filter(([groupId, members]) => active.has(groupId) && members.has(userId))
+      .map(([groupId]) => groupId)
+      .toSorted((a, b) => a - b)]));
+  }
+
+  replaceMembers(groupId: number, userIds: readonly number[]): Promise<void> {
+    this.members.set(groupId, new Set(userIds));
+    return Promise.resolve();
+  }
+
+  deleteMembershipsByUserId(userId: number): Promise<number> {
+    let changes = 0;
+    for (const members of this.members.values()) {
+      if (members.delete(userId)) changes++;
+    }
+    return Promise.resolve(changes);
+  }
+
+  deleteAll(): Promise<void> {
+    this.groups = [];
+    this.members.clear();
     return Promise.resolve();
   }
 }
@@ -1510,7 +1649,8 @@ export class InMemoryRepo implements Repo {
     },
   };
   apiKeys: ApiKeyRepo;
-  users: UsersRepo;
+  users: MemoryUsersRepo;
+  groups: MemoryGroupsRepo;
   sessions: SessionsRepo;
   usage: UsageRepo;
   webSearchUsage: WebSearchUsageRepo;
@@ -1527,8 +1667,16 @@ export class InMemoryRepo implements Repo {
   scheduledMaintenance: ScheduledMaintenanceRepo;
   agentSetup: AgentSetupRepository;
 
+  readUserDirectory(): Promise<UserDirectory> {
+    const users = this.users.snapshot();
+    const userIds = new Set(users.map(user => user.id));
+    const groups = this.groups.snapshot().map(group => ({ ...group, memberIds: group.memberIds.filter(id => userIds.has(id)) }));
+    return Promise.resolve({ users, groups });
+  }
+
   constructor() {
-    this.users = new MemoryUsersRepo();
+    this.groups = new MemoryGroupsRepo();
+    this.users = new MemoryUsersRepo(this.groups);
     this.sessions = new MemorySessionsRepo();
     this.expirationSweeps = new MemoryExpirationSweepsRepo();
     this.scheduledMaintenance = new MemoryScheduledMaintenanceRepo();
