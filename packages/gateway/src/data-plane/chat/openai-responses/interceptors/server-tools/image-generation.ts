@@ -1,5 +1,6 @@
 import { isEqual } from 'es-toolkit';
 
+import type { User } from '../../../../../repo/types.ts';
 import { sleep } from '../../../../../shared/sleep.ts';
 import { enumerateModelCandidates } from '../../../../providers/resolution.ts';
 import { stampUpstreamCallStart } from '../../../../shared/attempt-timing.ts';
@@ -902,6 +903,7 @@ const errorFromBody = (body: string, status: number): { type?: string; code: str
 interface ShimState {
   config: MaterializedImageGenerationConfig;
   apiKeyId: string;
+  user: User;
   upstreamIds: readonly string[] | null;
   randomizeUpstreams: boolean;
   backgroundScheduler: BackgroundScheduler;
@@ -994,6 +996,7 @@ const resolveImageCandidate = async (
   let resolution;
   try {
     resolution = await enumerateModelCandidates({
+      subject: state.user,
       upstreamIds: state.upstreamIds,
       randomizeUpstreams: state.randomizeUpstreams,
       model: state.config.model,
@@ -1468,6 +1471,7 @@ export const imageGenerationServerTool: ServerToolRegistration = async (invocati
   const state: ShimState = {
     config: materializedConfig,
     apiKeyId: gatewayCtx.apiKeyId,
+    user: gatewayCtx.user,
     upstreamIds: gatewayCtx.upstreamIds,
     randomizeUpstreams: gatewayCtx.randomizeUpstreams,
     backgroundScheduler: gatewayCtx.backgroundScheduler,

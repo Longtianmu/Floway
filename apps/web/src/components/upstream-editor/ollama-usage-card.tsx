@@ -20,7 +20,7 @@ import { readOllamaAccountUsage } from '@floway-dev/provider-ollama/browser';
 
 const { InfoLabel, Text } = fluentComponents;
 
-export function OllamaUsageCard({ probeRecord, record }: { probeRecord: UpstreamRecordEnvelope; record: OllamaRecord }) {
+export function OllamaUsageCard({ probeRecord, readOnly = false, record }: { probeRecord: UpstreamRecordEnvelope; readOnly?: boolean; record: OllamaRecord }) {
   const { t } = useTranslation();
   const preferences = useUserPreferences();
   const locale = useLocale();
@@ -61,7 +61,7 @@ export function OllamaUsageCard({ probeRecord, record }: { probeRecord: Upstream
       {account?.plan && <StatusBadge tone="accent" className="capitalize">{account.plan}</StatusBadge>}
     </div>}
 
-    <SectionHeader level={3} title={t('dashboard.upstreamEditor.ollama.usage.title')} actions={
+    <SectionHeader level={3} title={t('dashboard.upstreamEditor.ollama.usage.title')} actions={!readOnly &&
       <ResourceListActions
         appearance="subtle"
         onRefresh={() => void load()}

@@ -15,6 +15,7 @@ const backupFileSchema = z.object({
     users: z.array(z.unknown()),
     userPreferences: z.array(z.unknown()),
     groups: z.array(z.unknown()),
+    accessRecords: z.array(z.unknown()),
     apiKeys: z.array(z.unknown()),
     upstreams: z.array(z.unknown()),
     proxies: z.array(z.unknown()),

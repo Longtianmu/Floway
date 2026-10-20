@@ -41,7 +41,7 @@ test('Custom editor values add one blank ingress row and never serialize it', ()
     { key: 'x-route', value: 'fast' },
   ];
   expect((createBody(record, values).config as CustomRecord['config']).ingressHeadersRules).toEqual(expected);
-  expect((updateBody(record, values).config as CustomRecord['config']).ingressHeadersRules).toEqual(expected);
+  expect((updateBody(record, values, 'full').config as CustomRecord['config']).ingressHeadersRules).toEqual(expected);
   expect((previewRecord(record, values).config as CustomRecord['config']).ingressHeadersRules).toEqual(expected);
 });
 
@@ -61,7 +61,7 @@ test('background usage refresh remains explicit through editor create, preview a
     values.usageRefreshIntervalMinutes = interval;
     expect(createBody(record, values).usage_refresh_interval_minutes).toBe(interval);
     expect(previewRecord(record, values).usage_refresh_interval_minutes).toBe(interval);
-    expect(updateBody(record, values).usage_refresh_interval_minutes).toBe(interval);
+    expect(updateBody(record, values, 'full').usage_refresh_interval_minutes).toBe(interval);
     expect(hasUnsavedDiscoveryInputs({ usageRefreshIntervalMinutes: 5 })).toBe(false);
   }
 });
@@ -90,13 +90,13 @@ test('an API key opens on the stored value', () => {
 test('a replacement API key is sent', () => {
   const values = valuesFromRecord(withKey('sk-stored'));
   (values.config as CustomRecord['config']).apiKey = ' sk-replacement ';
-  expect((updateBody(withKey('sk-stored'), values).config as CustomRecord['config']).apiKey).toBe('sk-replacement');
+  expect((updateBody(withKey('sk-stored'), values, 'full').config as CustomRecord['config']).apiKey).toBe('sk-replacement');
 });
 
 test('an emptied API key field is sent as an empty key', () => {
   const values = valuesFromRecord(withKey('sk-stored'));
   (values.config as CustomRecord['config']).apiKey = '';
-  expect((updateBody(withKey('sk-stored'), values).config as CustomRecord['config']).apiKey).toBe('');
+  expect((updateBody(withKey('sk-stored'), values, 'full').config as CustomRecord['config']).apiKey).toBe('');
 });
 
 test('an absent API key opens as an empty field', () => {

@@ -11,6 +11,7 @@ import {
 import { useTranslation } from '../i18n/translation';
 import type { Route } from './+types/dashboard';
 import { requireDashboardSession } from './guards';
+import { revalidateOnPathnameChange } from './revalidation';
 import type { AuthUser } from '../api/auth';
 import { FlowayLogo } from '../components/logo';
 import { usePageFrames } from '../components/page-frames';
@@ -32,12 +33,14 @@ export interface DashboardOutletContext {
 
 export async function clientLoader() {
   requireDashboardSession();
-  const user = await useAuthStore.getState().initialize();
+  const user = await useAuthStore.getState().refresh();
   if (user) return null;
   const error = useAuthStore.getState().error;
   if (error) throw new Error(error.message, { cause: error });
   throw redirect('/');
 }
+
+export const shouldRevalidate = revalidateOnPathnameChange;
 
 // The signed-in check is its own component so everything below takes a user
 // rather than a user-or-null: a hook cannot run behind a condition.

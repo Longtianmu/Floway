@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 
 import { useTranslation } from '../i18n/translation';
@@ -33,7 +33,6 @@ import { useLocale } from '../lib/use-locale';
 
 type LoaderData = Awaited<ReturnType<typeof loadUsagePageData>> & {
   currentUserId: string;
-  isAdmin: boolean;
   loadedAt: number;
   state: UsageUrlState;
 };
@@ -44,13 +43,12 @@ export async function clientLoader({ request }: Route.ClientLoaderArgs): Promise
   const scoped = scopeTelemetryIdentity(parsed.groupBy, parsed.filters, {
     currentUserId: String(user.id),
     fallbackGroup: 'model',
-    userDimensionAvailable: user.isAdmin,
+    userDimensionAvailable: true,
   });
   const loadedAt = Date.now();
   return {
-    ...await loadUsagePageData(user.isAdmin, parsed.range, scoped.groupBy, scoped.filters, loadedAt),
+    ...await loadUsagePageData(String(user.id), parsed.range, scoped.groupBy, scoped.filters, loadedAt),
     currentUserId: String(user.id),
-    isAdmin: user.isAdmin,
     loadedAt,
     state: { ...parsed, ...scoped },
   };
@@ -75,27 +73,29 @@ export default function DashboardMonitorUsage({ loaderData }: Route.ComponentPro
   const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(() => new Set(initialState.hidden));
   const [hiddenSearch, setHiddenSearch] = useState<Set<string>>(() => new Set(initialState.hiddenSearch));
   const [error, setError] = useState<GlobalError | null>(loaderData.error);
+  const auditableUserIdsRef = useRef(loaderData.usage?.auditableUserIds ?? [Number(loaderData.currentUserId)]);
   const locale = useLocale();
   const identityContext = {
     currentUserId: loaderData.currentUserId,
     fallbackGroup: 'model' as const,
-    userDimensionAvailable: loaderData.isAdmin,
+    userDimensionAvailable: true,
   };
 
   const reload = useCallback(async (signal: AbortSignal, { background, requestedAt }: { background: boolean; requestedAt: number }) => {
     if (!background) setError(null);
-    const next = await loadUsagePageData(loaderData.isAdmin, query.range, query.groupBy, query.filters, requestedAt, signal);
+    const next = await loadUsagePageData(loaderData.currentUserId, query.range, query.groupBy, query.filters, requestedAt, signal, auditableUserIdsRef.current);
     if (signal.aborted) return false;
     if (next.usage === null) {
       setError(next.error);
       return false;
     }
     setUsage(next.usage);
+    auditableUserIdsRef.current = next.usage.auditableUserIds;
     setSearch(next.search);
     setUpstreams(next.upstreams);
     setError(next.error);
     return true;
-  }, [loaderData.isAdmin, query]);
+  }, [loaderData.currentUserId, query]);
 
   const onQueryCommit = useCallback((previous: typeof query, next: typeof query) => {
     if (previous.groupBy !== next.groupBy) setHiddenSeries(new Set());
@@ -121,9 +121,9 @@ export default function DashboardMonitorUsage({ loaderData }: Route.ComponentPro
 
   const buckets = useMemo(() => dashboardBuckets(loadedQuery.range, loadedAt), [loadedAt, loadedQuery.range]);
   const availableDimensions = useMemo(() => usage === null ? null : usageDimensions({
-    usage, upstreams, filters: loadedQuery.filters,
-    currentUserId: loaderData.currentUserId, isAdmin: loaderData.isAdmin, t,
-  }), [loadedQuery.filters, loaderData.currentUserId, loaderData.isAdmin, t, upstreams, usage]);
+    usage, upstreams,
+    currentUserId: loaderData.currentUserId, t,
+  }), [loaderData.currentUserId, t, upstreams, usage]);
   const searchChart = useMemo(
     () => search && buildSearchChart({ search, range: loadedQuery.range, buckets }),
     [buckets, loadedQuery.range, search],

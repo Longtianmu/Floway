@@ -3,7 +3,6 @@ import type { InferRequestType } from 'hono/client';
 import { PATH_OVERRIDE_PATHS } from './endpoints';
 import { api, callApi } from '../../api/client';
 import type {
-  ProxyRecord,
   ProviderModelsFailureResponse,
   UpstreamRecord,
   UpstreamRecordEnvelope,
@@ -24,11 +23,13 @@ export interface RuntimeInfo {
 }
 
 export interface EditorAuxData {
-  proxies: ProxyRecord[];
+  proxies: Array<{ id: string; name: string }>;
   runtime: RuntimeInfo;
 }
 
 interface UpstreamEditorLoaderDataBase extends EditorAuxData {
+  audit?: boolean;
+  editLevel: 'off' | 'models' | 'full';
   record: UpstreamRecord;
   discovered: UpstreamModelConfig[] | null;
 }
@@ -82,15 +83,19 @@ export const providerDefaultName: Record<UpstreamProviderKind, string> = {
   ollama: 'Ollama',
 };
 
-export const loadEditorAux = async (): Promise<EditorAuxData> => {
-  const [proxies, runtime] = await Promise.all([
-    callApi(() => api.api.proxies.$get()),
-    callApi(() => api.api['runtime-info'].$get()),
-  ]);
-  if (proxies.error) throw new Error(proxies.error.message);
+// Proxy names are part of an upstream's readable configuration, so every
+// editor loads them; only changing the fallback list needs Full.
+export const loadEditorAux = async (upstreamId?: string): Promise<EditorAuxData> => {
+  const runtimePromise = callApi(() => api.api['runtime-info'].$get());
+  const result = upstreamId === undefined
+    ? await callApi(() => api.api.proxies.$get())
+    : await callApi(() => api.api['proxy-options'].$get({ query: { upstream_id: upstreamId } }));
+  if (result.error) throw new Error(result.error.message);
+  const proxies = result.data.map(proxy => ({ id: proxy.id, name: proxy.name }));
+  const runtime = await runtimePromise;
   if (runtime.error) throw new Error(runtime.error.message);
   return {
-    proxies: proxies.data,
+    proxies,
     runtime: runtime.data,
   };
 };
@@ -293,7 +298,18 @@ export const createBody = (record: UpstreamRecord, values: UpstreamEditorValues)
   } as CreateUpstreamBody;
 };
 
-export const updateBody = (record: UpstreamRecord, values: UpstreamEditorValues): UpdateUpstreamBody => {
+export const updateBody = (record: UpstreamRecord, values: UpstreamEditorValues, editLevel: 'models' | 'full'): UpdateUpstreamBody => {
+  if (editLevel === 'models') {
+    const config = manualModelsSupported(record)
+      ? record.kind === 'custom'
+        ? { models: structuredClone(values.manualModels), modelsFetch: { enabled: (values.config as Extract<UpstreamRecord, { kind: 'custom' }>['config']).modelsFetch.enabled } }
+        : { models: structuredClone(values.manualModels) }
+      : undefined;
+    return {
+      disabled_public_model_ids: values.disabledPublicModelIds,
+      ...(config === undefined ? {} : { config }),
+    } as UpdateUpstreamBody;
+  }
   return {
     name: values.name.trim(),
     enabled: values.enabled,

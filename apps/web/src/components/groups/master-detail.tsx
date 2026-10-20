@@ -98,17 +98,15 @@ function GroupDetails({ disabled, group: selected, members, onDelete, onEdit, on
     </header>
     {members.length === 0 ? <EmptyState title={t('dashboard.groupsManagement.members.empty')} /> : <ScrollArea axes="horizontal" className="min-w-0">
       <Table aria-label={t('dashboard.groupsManagement.fields.members')} className="min-w-[520px]" style={{ tableLayout: 'auto' }}>
-        <TableColumns widths={[null, null, null, '56px']} />
+        <TableColumns widths={[null, null, '56px']} />
         <TableHeader><TableRow>
           <TableHeaderCell className="!pl-[var(--floway-panel-inset)]">{t('dashboard.users.table.username')}</TableHeaderCell>
           <TableHeaderCell className="whitespace-nowrap">{t('dashboard.groupsManagement.members.joined')}</TableHeaderCell>
-          <TableHeaderCell className="whitespace-nowrap">{t('dashboard.users.table.upstreams')}</TableHeaderCell>
           <TableActionsHeader />
         </TableRow></TableHeader>
         <TableBody>{members.map(({ user, createdAt: joinedAt }) => <TableRow className="h-11" key={user.id}>
           <TableCell className="!pl-[var(--floway-panel-inset)]"><UserIdentity isAdmin={user.isAdmin} username={user.username} /></TableCell>
           <TableCell className="whitespace-nowrap tabular-nums"><Tooltip content={dateTime(joinedAt, locale)} relationship="description"><time className="winui-focus-rect floway-control-label whitespace-nowrap" dateTime={joinedAt} tabIndex={0}>{shortDate(joinedAt, locale)}</time></Tooltip></TableCell>
-          <TableCell className="whitespace-nowrap tabular-nums">{user.upstreamIds === null ? t('dashboard.users.upstreams.all') : t('dashboard.users.upstreams.count', { count: user.upstreamIds.length })}</TableCell>
           <TableCell><ConfirmFlyout
             actionLabel={t('dashboard.groupsManagement.remove.confirm')}
             disabled={disabled}

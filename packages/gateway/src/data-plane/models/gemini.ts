@@ -1,13 +1,13 @@
 import type { Context } from 'hono';
 
+import { loadModelListingCatalog } from './load.ts';
 import { createModelsRefreshScheduler, type ModelsRefreshScheduler } from '../../execution/models-refresh.ts';
-import { effectiveUpstreamIdsFromContext } from '../../middleware/auth.ts';
+import { effectiveUpstreamIdsFromContext, userFromContext } from '../../middleware/auth.ts';
 import { getRepo } from '../../repo/index.ts';
-import type { ModelAliasesRepo } from '../../repo/types.ts';
+import type { ModelAliasesRepo, User } from '../../repo/types.ts';
 import { backgroundSchedulerFromContext } from '../../runtime/background.ts';
 import { getRuntimeLocation } from '../../runtime/runtime-info.ts';
 import { geminiGenerateContentStatusForHttpStatus } from '../chat/gemini-generate-content/errors.ts';
-import { enumerateAddressableModelIds, listedRealModels } from '../shared/listing/addressable.ts';
 import { mergeAliasesIntoModels } from '../shared/listing/alias.ts';
 import type { ModelPricing } from '@floway-dev/protocols/common';
 import type { InternalModel } from '@floway-dev/provider';
@@ -62,25 +62,18 @@ const geminiModelLoadError = (error: unknown): Response =>
 // on the shared `mergeAliasesIntoModels` helper so /v1beta/models stays in
 // step with /v1/models and the dashboard's /api/models.
 const loadGeminiModels = async (
+  subject: User,
   upstreamFilter: readonly string[] | null,
   scheduleRefresh: ModelsRefreshScheduler,
   aliasRepo: ModelAliasesRepo,
 ): Promise<GeminiModel[]> => {
-  const [callerAddressable, gatewayAddressable, aliases] = await Promise.all([
-    enumerateAddressableModelIds(upstreamFilter, scheduleRefresh),
-    upstreamFilter === null
-      ? Promise.resolve(null)
-      : enumerateAddressableModelIds(null, scheduleRefresh),
-    aliasRepo.list(),
-  ]);
-  const gatewayAddressableModelIds = gatewayAddressable ?? callerAddressable;
-  const realModels = listedRealModels(callerAddressable);
+  const { callerAddressable, gatewayAddressable, realModels, aliases } = await loadModelListingCatalog(subject, upstreamFilter, scheduleRefresh, aliasRepo);
   // Gemini surfaces chat-kind models only; filter both the real catalog and
   // the synthesized alias entries before the merge so the alias collision
   // step only ever weighs chat-on-chat.
   const merged = mergeAliasesIntoModels({
     realModels: realModels.filter(model => model.kind === 'chat'),
-    gatewayAddressableModelIds: gatewayAddressableModelIds.filter(entry => entry.model.kind === 'chat'),
+    gatewayAddressableModelIds: gatewayAddressable.filter(entry => entry.model.kind === 'chat'),
     callerAddressableModelIds: callerAddressable.filter(entry => entry.model.kind === 'chat'),
     aliases: aliases.filter(alias => alias.kind === 'chat'),
     narrowTargets: true,
@@ -91,7 +84,7 @@ const loadGeminiModels = async (
 export const serveGeminiModels = async (c: Context): Promise<Response> => {
   try {
     const scheduleRefresh = createModelsRefreshScheduler(getRuntimeLocation(c.req.raw), backgroundSchedulerFromContext(c));
-    return Response.json({ models: await loadGeminiModels(effectiveUpstreamIdsFromContext(c), scheduleRefresh, getRepo().modelAliases) });
+    return Response.json({ models: await loadGeminiModels(userFromContext(c), effectiveUpstreamIdsFromContext(c), scheduleRefresh, getRepo().modelAliases) });
   } catch (error) {
     return geminiModelLoadError(error);
   }
@@ -104,7 +97,7 @@ export const serveGeminiModelInfo = async (c: Context): Promise<Response> => {
   const modelId = rawModelId.replace(/^models\//, '');
   try {
     const scheduleRefresh = createModelsRefreshScheduler(getRuntimeLocation(c.req.raw), backgroundSchedulerFromContext(c));
-    const model = (await loadGeminiModels(effectiveUpstreamIdsFromContext(c), scheduleRefresh, getRepo().modelAliases)).find(candidate => candidate.baseModelId === modelId || candidate.name === `models/${modelId}`);
+    const model = (await loadGeminiModels(userFromContext(c), effectiveUpstreamIdsFromContext(c), scheduleRefresh, getRepo().modelAliases)).find(candidate => candidate.baseModelId === modelId || candidate.name === `models/${modelId}`);
     if (!model) return geminiError(404, `Model not found: ${modelId}`);
     return Response.json(model);
   } catch (error) {

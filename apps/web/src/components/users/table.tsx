@@ -50,13 +50,12 @@ export function UsersTable({
   return (
     <ScrollArea axes="horizontal" className="min-w-0">
       <Table aria-label={t('dashboard.users.table.label')} className="min-w-[820px]" style={{ tableLayout: 'auto' }}>
-        <TableColumns widths={['22%', null, '40%', null, TABLE_ACTIONS_WIDTH]} />
+        <TableColumns widths={['22%', null, '50%', TABLE_ACTIONS_WIDTH]} />
         <TableHeader>
           <TableRow>
             <TableHeaderCell>{t('dashboard.users.table.username')}</TableHeaderCell>
             <TableHeaderCell className="whitespace-nowrap">{t('dashboard.users.table.created')}</TableHeaderCell>
             <TableHeaderCell>{t('dashboard.users.table.groups')}</TableHeaderCell>
-            <TableHeaderCell className="whitespace-nowrap">{t('dashboard.users.table.upstreams')}</TableHeaderCell>
             <TableActionsHeader />
           </TableRow>
         </TableHeader>
@@ -72,11 +71,6 @@ export function UsersTable({
                   </Tooltip>
                 </TableCell>
                 <TableCell><GroupMemberships groups={groupsByUser.get(user.id)!} /></TableCell>
-                <TableCell className="whitespace-nowrap tabular-nums">
-                  {user.upstreamIds === null
-                    ? t('dashboard.users.upstreams.all')
-                    : t('dashboard.users.upstreams.count', { count: user.upstreamIds.length })}
-                </TableCell>
                 <TableCell>
                   <TableActions>
                     <TooltipIconButton

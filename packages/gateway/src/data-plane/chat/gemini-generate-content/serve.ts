@@ -31,6 +31,7 @@ export const geminiGenerateContentServe = {
   generate: async (args: GeminiGenerateContentServeGenerateArgs): Promise<ExecuteResult<ProtocolFrame<GeminiGenerateContentStreamEvent>>> => {
     const { payload, ctx, model, headers } = args;
     const { candidates: enumerated, sawModel, failedUpstreams } = await enumerateModelCandidates({
+      subject: ctx.user,
       upstreamIds: ctx.upstreamIds,
       randomizeUpstreams: ctx.randomizeUpstreams,
       model,
@@ -62,6 +63,7 @@ export const geminiGenerateContentServe = {
   countTokens: async (args: GeminiGenerateContentServeCountTokensArgs): Promise<ExecuteResult<ProtocolFrame<GeminiGenerateContentStreamEvent>> | PlainResult> => {
     const { payload, ctx, model, headers } = args;
     const { candidates: enumerated, sawModel, failedUpstreams } = await enumerateModelCandidates({
+      subject: ctx.user,
       upstreamIds: ctx.upstreamIds,
       randomizeUpstreams: ctx.randomizeUpstreams,
       model,

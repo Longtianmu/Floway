@@ -9,7 +9,8 @@ export const primeDefaultSession = (): void => {
       id: 1,
       username: 'admin',
       isAdmin: true,
-      upstreamIds: null,
+      canViewPermissions: true,
+      canViewUpstreams: true,
       preferences: { quotaDisplay: 'remaining', language: null },
     },
   });

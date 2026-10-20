@@ -29,7 +29,7 @@ import { BackNavigationButton } from '../ui/back-navigation-button';
 import { ConfirmDialog } from '../ui/confirm-dialog';
 import { useDangerTextClass } from '../ui/danger';
 import { EmptyStateLine } from '../ui/empty-state';
-import { Input } from '../ui/fluent-form-controls';
+import { Input, Switch } from '../ui/fluent-form-controls';
 import { ContentLoadingScreen } from '../ui/loading-screen';
 import { OutcomeMessageBar } from '../ui/outcome-message-bar';
 import { RowTitleButton } from '../ui/row-title';
@@ -47,7 +47,6 @@ import type { UpstreamModelConfig } from '@floway-dev/provider/browser';
 const {
   Button,
   Spinner,
-  Switch,
   Tab,
   TabList,
   Table,
@@ -90,6 +89,7 @@ const ModelsYamlEditor = lazy(() => import('./models-yaml-editor'));
 
 export function UpstreamWorkspace({
   discovered,
+  editLevel,
   modelsYamlDraft,
   modelsError,
   modelsLoading,
@@ -98,6 +98,7 @@ export function UpstreamWorkspace({
   record,
 }: {
   discovered: UpstreamModelConfig[];
+  editLevel: 'off' | 'models' | 'full';
   modelsYamlDraft: ModelsYamlDraft | null;
   modelsError: ModelListingFailure | null;
   modelsLoading: boolean;
@@ -126,11 +127,13 @@ export function UpstreamWorkspace({
   const selectedUpstreamModelId = params.get(MODEL_PARAM);
   // A provider-owned catalog has no manual models to write, so its editor is
   // not addressable either — a typed `?view=yaml` lands on the list rather than
-  // on an editable buffer the upstream would never store.
+  // on an editable buffer the upstream would never store. The same applies to
+  // an audit-only editor, which may read the list but not edit it.
   const editableCatalog = manualModelsSupported(record);
+  const permissionReadOnly = editLevel === 'off';
   const modelView: ModelView = selectedUpstreamModelId !== null
     ? 'detail'
-    : params.get(VIEW_PARAM) === 'yaml' && editableCatalog ? 'yaml' : 'list';
+    : params.get(VIEW_PARAM) === 'yaml' && editableCatalog && !permissionReadOnly ? 'yaml' : 'list';
   const modelDetailTab: ModelDetailTab = params.get(SECTION_PARAM) === 'flags' ? 'flags' : 'details';
   const showModelDetail = modelView === 'detail';
 
@@ -192,7 +195,7 @@ export function UpstreamWorkspace({
   useLayoutEffect(() => {
     workspaceScrollRef.current?.scrollTo({ left: 0, top: 0 });
   }, [modelDetailTab, modelView, tab]);
-  const modelsWorkspace = <ModelsWorkspace detailSection={modelDetailTab} modelSelection={modelSelection} onModelLocatorCommit={commitModelLocator} onModelSelectionChange={setModelSelection} onOpenModel={openModel} selectedUpstreamModelId={selectedUpstreamModelId} discovered={discovered} modelsLoading={modelsLoading} modelsError={modelsError} onRefreshModels={onRefreshModels} onViewChange={changeModelView} readOnly={!editableCatalog} record={record} revealValidation={modelValidationAttempted || submitCount > 0} view={modelView} yamlDraft={modelsYamlDraft} onYamlDraftChange={onModelsYamlDraftChange} />;
+  const modelsWorkspace = <ModelsWorkspace detailSection={modelDetailTab} modelSelection={modelSelection} onModelLocatorCommit={commitModelLocator} onModelSelectionChange={setModelSelection} onOpenModel={openModel} selectedUpstreamModelId={selectedUpstreamModelId} discovered={discovered} modelsLoading={modelsLoading} modelsError={modelsError} onRefreshModels={onRefreshModels} onViewChange={changeModelView} permissionReadOnly={permissionReadOnly} readOnly={!editableCatalog} record={record} revealValidation={modelValidationAttempted || submitCount > 0} view={modelView} yamlDraft={modelsYamlDraft} onYamlDraftChange={onModelsYamlDraftChange} />;
   return <section className="grid grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] h-full min-h-0 min-w-0 max-[1050px]:h-auto">
     <div className="flex items-center gap-2 border-0 border-b border-solid border-fui-divider px-5 pt-2">
       {showModelDetail
@@ -223,14 +226,14 @@ export function UpstreamWorkspace({
               <Text size={300} className="text-fui-fg2">
                 {t('dashboard.upstreamEditor.flags.intro')}
               </Text>
-              <Controller name="flagOverrides" render={({ field }) => <FeatureFlagsEditor defaults={record.flag_defaults} value={field.value} onChange={field.onChange} />} />
+              <Controller name="flagOverrides" render={({ field }) => <FeatureFlagsEditor defaults={record.flag_defaults} readOnly={editLevel !== 'full'} value={field.value} onChange={field.onChange} />} />
             </div>}
           </div>}
     </ScrollArea>
   </section>;
 }
 
-function ModelsWorkspace({ detailSection, discovered, modelSelection, modelsError, modelsLoading, onModelLocatorCommit, onModelSelectionChange, onOpenModel, onRefreshModels, onViewChange, onYamlDraftChange, readOnly, record, revealValidation, selectedUpstreamModelId, view, yamlDraft }: {
+function ModelsWorkspace({ detailSection, discovered, modelSelection, modelsError, modelsLoading, onModelLocatorCommit, onModelSelectionChange, onOpenModel, onRefreshModels, onViewChange, onYamlDraftChange, permissionReadOnly, readOnly, record, revealValidation, selectedUpstreamModelId, view, yamlDraft }: {
   detailSection: ModelDetailTab;
   discovered: UpstreamModelConfig[];
   modelSelection: ModelSelection | null;
@@ -242,6 +245,12 @@ function ModelsWorkspace({ detailSection, discovered, modelSelection, modelsErro
   onOpenModel: (selection: ModelSelection | null) => void;
   onViewChange: (view: ModelView) => void;
   onYamlDraftChange: (draft: ModelsYamlDraft | null) => void;
+  // Permission-based read-only: no Upstream.Edit at all.
+  permissionReadOnly: boolean;
+  // Shape-based read-only: this provider's catalog is owned by the upstream,
+  // so rows cannot be added, removed, or edited structurally. Enabling or
+  // disabling a listed model and refreshing the catalog are still edits the
+  // caller may hold, so those follow permissionReadOnly.
   readOnly: boolean;
   record: UpstreamRecord;
   revealValidation: boolean;
@@ -386,7 +395,7 @@ function ModelsWorkspace({ detailSection, discovered, modelSelection, modelsErro
     </div>{deleteConfirmation}</>;
   }
 
-  if (view === 'detail' && activeDetailRow) return <><ModelDetail section={detailSection} row={activeDetailRow} readOnly={readOnly} revealValidation={revealValidation} onDelete={() => deleteDialog.open(activeDetailRow)} onSourceChange={source => setModelSource(activeDetailRow, source)} onUpstreamModelIdCommit={onModelLocatorCommit} onChange={value => {
+  if (view === 'detail' && activeDetailRow) return <><ModelDetail section={detailSection} row={activeDetailRow} readOnly={permissionReadOnly || readOnly} revealValidation={revealValidation} onDelete={() => deleteDialog.open(activeDetailRow)} onSourceChange={source => setModelSource(activeDetailRow, source)} onUpstreamModelIdCommit={onModelLocatorCommit} onChange={value => {
     if (activeDetailRow.manualIndex === null) return;
     setValue(`manualModels.${activeDetailRow.manualIndex}`, value, {
       shouldDirty: true,
@@ -400,11 +409,11 @@ function ModelsWorkspace({ detailSection, discovered, modelSelection, modelsErro
       level={2}
       title={t('dashboard.upstreamEditor.models.title')}
       actions={<>
-        {!readOnly && <Button appearance="primary" icon={<AddRegular />} onClick={addModel}>{t('dashboard.upstreamEditor.models.add')}</Button>}
-        {!readOnly && <Button className="!min-w-[160px]" icon={<CodeRegular />} onClick={() => onViewChange('yaml')}>{t('dashboard.upstreamEditor.models.editAsYaml')}</Button>}
+        {!permissionReadOnly && !readOnly && <Button appearance="primary" icon={<AddRegular />} onClick={addModel}>{t('dashboard.upstreamEditor.models.add')}</Button>}
+        {!permissionReadOnly && !readOnly && <Button className="!min-w-[160px]" icon={<CodeRegular />} onClick={() => onViewChange('yaml')}>{t('dashboard.upstreamEditor.models.editAsYaml')}</Button>}
         {record.kind !== 'azure' && <>
           <ModelsCacheStatus cache={record.modelsCache} />
-          <Button disabled={!canFetch} disabledFocusable={modelsLoading} icon={modelsLoading ? <Spinner size="tiny" /> : <ArrowClockwiseRegular />} onClick={onRefreshModels}>{t('dashboard.upstreamEditor.models.refresh')}</Button>
+          <Button disabled={!canFetch || permissionReadOnly} disabledFocusable={modelsLoading} icon={modelsLoading ? <Spinner size="tiny" /> : <ArrowClockwiseRegular />} onClick={onRefreshModels}>{t('dashboard.upstreamEditor.models.refresh')}</Button>
         </>}
       </>}
     />
@@ -433,7 +442,7 @@ function ModelsWorkspace({ detailSection, discovered, modelSelection, modelsErro
         <TableHeader><TableRow><TableCentredHeader>{t('dashboard.upstreamEditor.models.enabled')}</TableCentredHeader><TableHeaderCell>{t('dashboard.upstreamEditor.models.name')}</TableHeaderCell><TableCentredHeader>{t('dashboard.upstreamEditor.models.kind')}</TableCentredHeader><TableHeaderCell>{t('dashboard.upstreamEditor.models.id')}</TableHeaderCell><TableCentredHeader>{t('dashboard.upstreamEditor.models.source')}</TableCentredHeader><TableActionsHeader /></TableRow></TableHeader>
         <TableBody>{filtered.length === 0 ? <TableRow><TableCell colSpan={6}><EmptyStateLine>{t('dashboard.upstreamEditor.models.noMatches')}</EmptyStateLine></TableCell></TableRow> : filtered.map(row => {
           const id = publicModelId(row.config); return <TableRow className="h-14" key={row.key}>
-            <TableCentredCell><Switch aria-label={t('dashboard.upstreamEditor.models.enabledFor', { name: row.config.display_name ?? id })} checked={!disabled.includes(id)} onChange={(_, data) => setEnabled(id, data.checked)} /></TableCentredCell>
+            <TableCentredCell><Switch aria-label={t('dashboard.upstreamEditor.models.enabledFor', { name: row.config.display_name ?? id })} checked={!disabled.includes(id)} readOnly={permissionReadOnly || readOnly} onChange={(_, data) => setEnabled(id, data.checked)} /></TableCentredCell>
             <TableCell className="overflow-hidden">
               <TruncationTooltip content={row.config.display_name ?? id} relationship="label">
                 {measureRef => <RowTitleButton onClick={() => onOpenModel({ locator: row.config.upstreamModelId, manualIndex: row.manualIndex, rowKey: row.key })} ref={measureRef}>
@@ -444,7 +453,7 @@ function ModelsWorkspace({ detailSection, discovered, modelSelection, modelsErro
             <TableCentredCell>{t(`dashboard.upstreamEditor.models.kindValue.${row.config.kind}`)}</TableCentredCell>
             <TableCell className="overflow-hidden"><span className="flex items-center gap-1 min-w-0 max-w-full"><TruncationTooltip content={id} relationship="label">{measureRef => <code className="winui-focus-rect block min-w-0 max-w-[calc(100%-36px)] truncate leading-[var(--lineHeightBase300)]" ref={measureRef} tabIndex={0}>{id}</code>}</TruncationTooltip><TooltipIconButton className="flex-none" icon={copyOutcomeIcon(outcomeFor(id))} label={copyLabel(outcomeFor(id), t('dashboard.upstreamEditor.models.copy'))} onClick={() => copy(id, id)} /></span></TableCell>
             <TableCentredCell>{t(`dashboard.upstreamEditor.models.${row.source}`)}</TableCentredCell>
-            <TableCell><TableActions><TooltipIconButton icon={<EditRegular />} label={t('dashboard.upstreamEditor.models.editNamed', { name: row.config.display_name ?? id })} onClick={() => onOpenModel({ locator: row.config.upstreamModelId, manualIndex: row.manualIndex, rowKey: row.key })} />{row.manualIndex !== null && <TooltipIconButton danger icon={<DeleteRegular />} label={t('dashboard.upstreamEditor.models.deleteNamed', { name: row.config.display_name ?? id })} onClick={() => deleteDialog.open(row)} />}</TableActions></TableCell>
+            <TableCell><TableActions><TooltipIconButton icon={<EditRegular />} label={t('dashboard.upstreamEditor.models.editNamed', { name: row.config.display_name ?? id })} onClick={() => onOpenModel({ locator: row.config.upstreamModelId, manualIndex: row.manualIndex, rowKey: row.key })} />{!permissionReadOnly && !readOnly && row.manualIndex !== null && <TooltipIconButton danger icon={<DeleteRegular />} label={t('dashboard.upstreamEditor.models.deleteNamed', { name: row.config.display_name ?? id })} onClick={() => deleteDialog.open(row)} />}</TableActions></TableCell>
           </TableRow>;
         })}</TableBody>
       </Table>

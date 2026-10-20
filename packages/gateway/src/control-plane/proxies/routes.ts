@@ -2,10 +2,12 @@ import type { Context } from 'hono';
 
 import { ANCHORS, isIpV4, isIpV6 } from './egress-probe.ts';
 import { backoffRowsToJson, proxyRecordToJson } from './serialize.ts';
-import { type CtxWithJson } from '../../middleware/zod-validator.ts';
+import { resolveUpstreamAccesses } from '../../access-control/upstream-edit.ts';
+import { userFromContext } from '../../middleware/auth.ts';
+import { type CtxWithJson, type CtxWithQuery } from '../../middleware/zod-validator.ts';
 import { getRepo } from '../../repo/index.ts';
 import { shortId } from '../../shared/short-id.ts';
-import type { createProxyBody, resetBackoffBody, testProxyBody, updateProxyBody } from '../schemas.ts';
+import type { createProxyBody, proxyOptionsQuery, resetBackoffBody, testProxyBody, updateProxyBody } from '../schemas.ts';
 import { getHttpContentDecoders, getSocketDial } from '@floway-dev/platform';
 import { parseProxyUri, ProxyDialError, runProxiedRequest, type ProxyConfig, type ProxyRequestTarget } from '@floway-dev/proxy';
 
@@ -20,6 +22,19 @@ const proxyUriValidationError = (err: unknown): string => {
 export const listProxies = async (c: Context) => {
   const proxies = await getRepo().proxies.list();
   return c.json(proxies.map(proxyRecordToJson));
+};
+
+// Proxy identities are part of an upstream's readable redacted configuration,
+// so anyone who can read that upstream may resolve the ids it names. Changing
+// the fallback list stays Full-only at the write path.
+export const listProxyOptions = async (c: CtxWithQuery<typeof proxyOptionsQuery>) => {
+  const upstreamId = c.req.valid('query').upstream_id;
+  if (!await getRepo().upstreams.getById(upstreamId)) return c.json({ error: 'Upstream not found' }, 404);
+  const access = (await resolveUpstreamAccesses(userFromContext(c), [upstreamId])).get(upstreamId)!;
+  if (!access.audit && access.edit === 'off') {
+    return c.json({ error: 'Upstream not found' }, 404);
+  }
+  return c.json((await getRepo().proxies.list()).map(proxy => ({ id: proxy.id, name: proxy.name })));
 };
 
 export const createProxy = async (c: CtxWithJson<typeof createProxyBody>) => {

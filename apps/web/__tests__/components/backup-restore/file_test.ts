@@ -6,6 +6,7 @@ const data = {
   users: [],
   userPreferences: [],
   groups: [],
+  accessRecords: [],
   apiKeys: [],
   upstreams: [],
   proxies: [],

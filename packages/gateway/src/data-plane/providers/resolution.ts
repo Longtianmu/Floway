@@ -3,10 +3,11 @@ import { isEqual, uniqWith } from 'es-toolkit';
 import { internalModelFromProviderModel } from './catalog.ts';
 import { readUpstreamModelsSnapshotAndScheduleRefresh } from './models-cache.ts';
 import { listModelProviders, type GatewayProvider } from './registry.ts';
+import { checkMany } from '../../access-control/check.ts';
 import { createPerRequestFetcher } from '../../dial/per-request.ts';
 import { createModelsRefreshScheduler, type ModelsRefreshScheduler } from '../../execution/models-refresh.ts';
 import { getRepo } from '../../repo/index.ts';
-import type { ModelAliasRecord } from '../../repo/types.ts';
+import type { ModelAliasRecord, User } from '../../repo/types.ts';
 import type { BackgroundScheduler } from '@floway-dev/platform';
 import type { ModelKind } from '@floway-dev/protocols/common';
 import type { Fetcher, ModelCandidate } from '@floway-dev/provider';
@@ -75,16 +76,15 @@ const shuffled = <T>(items: readonly T[]): T[] => {
   return result;
 };
 
-// Walk every visible upstream in configured order. Snapshot reads never wait
+// Walk configured upstreams permitted by Model.Use for this ID. Snapshot reads never wait
 // for upstream model-list I/O; cold and stale rows submit background refresh.
 // Scheduling failures propagate as internal errors rather than being reported
 // as persisted model-list failures for an upstream.
 //
-// `sawModel` aggregates the per-upstream signal: true when at least one
-// upstream's catalog carried the inbound id under any kind, so the caller can
-// distinguish "id is unknown everywhere" (404) from "id exists but wrong kind"
-// (400).
-export const enumerateRealModelCandidates = (
+// `sawModel` aggregates only permitted catalogs, regardless of kind. Denied
+// entries do not disclose model existence through this signal.
+export const enumerateRealModelCandidates = async (
+  subject: User,
   modelId: string,
   kind: ModelKind,
   providers: readonly GatewayProvider[],
@@ -93,16 +93,22 @@ export const enumerateRealModelCandidates = (
     randomizeUpstreams: boolean;
     scheduleRefresh: ModelsRefreshScheduler;
   },
-): {
+): Promise<{
   readonly candidates: readonly ModelCandidate[];
   readonly sawModel: boolean;
   readonly failedUpstreams: readonly string[];
-} => {
+}> => {
   const { fetcherForUpstream, randomizeUpstreams, scheduleRefresh } = context;
+  const allowed = await checkMany(subject, providers.map(provider => ({
+    target: { kind: 'upstreamModel' as const, upstreamId: provider.upstreamId, model: { kind: 'exact' as const, value: modelId } },
+    requirement: { permission: 'Model.Use' as const },
+  })));
   const failedUpstreams: string[] = [];
   const candidateGroups: ModelCandidate[][] = [];
   let sawModel = false;
-  for (const provider of providers) {
+  for (let index = 0; index < providers.length; index++) {
+    if (!allowed[index]) continue;
+    const provider = providers[index]!;
     const result = enumerateOneUpstreamCandidates(provider, modelId, kind, {
       fetcher: fetcherForUpstream(provider.upstreamId),
       scheduleRefresh,
@@ -135,10 +141,10 @@ const orderAliasTargets = (alias: ModelAliasRecord): readonly ModelAliasRecord['
 //   2. Otherwise (no alias match at all) run the real-catalog resolver
 //      directly on the inbound id.
 //
-// The real-catalog resolver walks every visible upstream and filters by kind
-// inside the walk, so wrong-kind entries never become candidates. `sawModel`
-// reports whether the id was known to any upstream regardless of kind, so the
-// caller can distinguish "model missing" (404) from "model wrong kind" (400).
+// The real-catalog resolver applies Model.Use before reading each catalog,
+// then filters by kind. `sawModel` tracks non-disabled addressable matches in
+// permitted catalogs. With no candidates, false keeps hidden/missing IDs at 404;
+// true identifies wrong-kind matches (400).
 //
 // Endpoint-level narrowing — picking the chat target protocol from
 // `model.endpoints`, or checking the specific `openaiImagesEdits` /
@@ -153,8 +159,9 @@ const orderAliasTargets = (alias: ModelAliasRecord): readonly ModelAliasRecord['
 // whose first target matches its own name) resolves to the real model on
 // the first pass; alias names never re-enter the alias layer.
 export const enumerateModelCandidates = async ({
-  upstreamIds, randomizeUpstreams, model, kind, scheduler, runtimeLocation,
+  subject, upstreamIds, randomizeUpstreams, model, kind, scheduler, runtimeLocation,
 }: {
+  subject: User;
   // null = unrestricted; empty list = no providers visible.
   upstreamIds: readonly string[] | null;
   randomizeUpstreams: boolean;
@@ -183,7 +190,7 @@ export const enumerateModelCandidates = async ({
 
   const alias = await getRepo().modelAliases.getByName(model);
   if (alias === null) {
-    return enumerateRealModelCandidates(model, kind, listedProviders, resolutionContext);
+    return await enumerateRealModelCandidates(subject, model, kind, listedProviders, resolutionContext);
   }
 
   // Walk every target, tag each returned candidate with the target's rule
@@ -195,7 +202,7 @@ export const enumerateModelCandidates = async ({
   let sawModel = false;
   const flat: ModelCandidate[] = [];
   for (const target of orderAliasTargets(alias)) {
-    const result = enumerateRealModelCandidates(target.target_model_id, kind, listedProviders, resolutionContext);
+    const result = await enumerateRealModelCandidates(subject, target.target_model_id, kind, listedProviders, resolutionContext);
     for (const name of result.failedUpstreams) aggregatedFailed.add(name);
     if (result.sawModel) sawModel = true;
     for (const candidate of result.candidates) {

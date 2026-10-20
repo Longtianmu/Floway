@@ -15,7 +15,8 @@ const user = {
   id: 1,
   username: 'admin',
   isAdmin: true,
-  upstreamIds: null,
+  canViewPermissions: true,
+  canViewUpstreams: true,
   preferences: { quotaDisplay: 'remaining' as const, language: null },
 };
 

@@ -12,6 +12,7 @@ import { generateSessionToken } from './session-tokens.ts';
 import { SqlSpilledFilesRepo } from './spilled-files-sql.ts';
 import { runStatements } from './sql-batch.ts';
 import type {
+  AccessRecordsRepo,
   ApiKey,
   ApiKeyRepo,
   ApiKeyUpdate,
@@ -78,6 +79,20 @@ import { SqlUpstreamMetricsRepo } from './upstream-metrics-sql.ts';
 import { parseUpstreamHue, parseUpstreamKind } from './upstream-parse.ts';
 import { usageMetricRows } from './usage-metrics.ts';
 import { querySqlUsageOverview } from './usage-overview-sql.ts';
+import {
+  accessScopeDepth,
+  accessScopeKey,
+  accessScopeOrderGroup,
+  canonicalAccessScope,
+  AccessRecordConflictError,
+  sameModelOrderBoundary,
+  type AccessPrincipal,
+  type AccessRecord,
+  type AccessRecordInput,
+  type AccessScope,
+  type AccessValues,
+  validateAccessRecordInput,
+} from '../access-control/types.ts';
 import { bucketForTtftMs, bucketForTpotUs } from '../shared/performance-histogram.ts';
 import { parseServerSecret } from '../shared/server-secret.ts';
 import { assertWebSearchProviderName, type WebSearchConfig } from '../shared/web-search-providers.ts';
@@ -283,19 +298,17 @@ interface UserRow {
   username: string;
   password_hash: string | null;
   is_admin: number;
-  upstream_ids: string | null;
   created_at: string;
   deleted_at: string | null;
 }
 
-const USER_COLUMNS = 'id, username, password_hash, is_admin, upstream_ids, created_at, deleted_at';
+const USER_COLUMNS = 'id, username, password_hash, is_admin, created_at, deleted_at';
 
 const toUser = (row: UserRow): User => ({
   id: row.id,
   username: row.username,
   passwordHash: row.password_hash,
   isAdmin: row.is_admin === 1,
-  upstreamIds: parseUpstreamIds(row.upstream_ids, `users.id=${row.id}`),
   createdAt: row.created_at,
   deletedAt: row.deleted_at,
 });
@@ -339,15 +352,14 @@ class SqlUsersRepo implements UsersRepo {
     // pick distinct ids.
     const row = await this.db
       .prepare(
-        `INSERT INTO users (id, username, password_hash, is_admin, upstream_ids, created_at, deleted_at)
-         SELECT COALESCE(MAX(id), 0) + 1, ?, ?, ?, ?, ?, ? FROM users
+        `INSERT INTO users (id, username, password_hash, is_admin, created_at, deleted_at)
+         SELECT COALESCE(MAX(id), 0) + 1, ?, ?, ?, ?, ? FROM users
          RETURNING id`,
       )
       .bind(
         template.username,
         template.passwordHash,
         template.isAdmin ? 1 : 0,
-        serializeUpstreamIds(template.upstreamIds),
         template.createdAt,
         template.deletedAt,
       )
@@ -359,12 +371,11 @@ class SqlUsersRepo implements UsersRepo {
   async save(user: User, groupIds?: readonly number[]): Promise<void> {
     const save = this.db
       .prepare(
-        `INSERT INTO users (${USER_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO users (${USER_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT (id) DO UPDATE SET
            username = excluded.username,
            password_hash = excluded.password_hash,
            is_admin = excluded.is_admin,
-           upstream_ids = excluded.upstream_ids,
            deleted_at = excluded.deleted_at`,
       )
       .bind(
@@ -372,7 +383,6 @@ class SqlUsersRepo implements UsersRepo {
         user.username,
         user.passwordHash,
         user.isAdmin ? 1 : 0,
-        serializeUpstreamIds(user.upstreamIds),
         user.createdAt,
         user.deletedAt,
       );
@@ -563,6 +573,172 @@ class SqlGroupsRepo implements GroupsRepo {
 
   async deleteAll(): Promise<void> {
     await runStatements(this.db, [this.db.prepare('DELETE FROM group_members'), this.db.prepare('DELETE FROM groups')]);
+  }
+}
+
+interface AccessRecordRow {
+  id: number;
+  principal_type: string;
+  principal_id: number;
+  scope_json: string;
+  sort_order: number;
+  values_json: string;
+  created_at: string;
+  updated_at: string;
+}
+
+const ACCESS_RECORD_COLUMNS = 'id, principal_type, principal_id, scope_json, sort_order, values_json, created_at, updated_at';
+
+const parseAccessRecord = (row: AccessRecordRow): AccessRecord => {
+  if (row.principal_type !== 'user' && row.principal_type !== 'group') throw new Error(`Unknown access principal type ${row.principal_type}`);
+  const input: AccessRecordInput = {
+    principal: { kind: row.principal_type, id: row.principal_id },
+    scope: JSON.parse(row.scope_json) as AccessScope,
+    sortOrder: row.sort_order,
+    values: JSON.parse(row.values_json) as AccessValues,
+  };
+  validateAccessRecordInput(input);
+  return { id: row.id, ...input, createdAt: row.created_at, updatedAt: row.updated_at };
+};
+
+class SqlAccessRecordsRepo implements AccessRecordsRepo {
+  constructor(private db: SqlDatabase) {}
+
+  private assertOrderAvailable(input: AccessRecordInput, existing: readonly AccessRecord[], excludingId?: number): void {
+    if (existing.some(record => record.id !== excludingId && accessScopeKey(record.scope) === accessScopeKey(input.scope))) {
+      throw new AccessRecordConflictError('Access record already exists for this principal and scope');
+    }
+    if (input.scope.kind !== 'upstreamModel') return;
+    const duplicateOrder = existing.find(record =>
+      record.id !== excludingId
+      && accessScopeDepth(record.scope) === accessScopeDepth(input.scope)
+      && accessScopeOrderGroup(record.scope) === accessScopeOrderGroup(input.scope)
+      && record.sortOrder === input.sortOrder);
+    if (duplicateOrder) throw new AccessRecordConflictError(`Access record sortOrder ${input.sortOrder} is already used at this scope level`);
+  }
+
+  async list(): Promise<AccessRecord[]> {
+    const { results } = await this.db.prepare(`SELECT ${ACCESS_RECORD_COLUMNS} FROM access_records ORDER BY principal_type, principal_id, sort_order, id`).all<AccessRecordRow>();
+    return results.map(parseAccessRecord);
+  }
+
+  async getById(id: number): Promise<AccessRecord | null> {
+    const row = await this.db.prepare(`SELECT ${ACCESS_RECORD_COLUMNS} FROM access_records WHERE id = ?`).bind(id).first<AccessRecordRow>();
+    return row ? parseAccessRecord(row) : null;
+  }
+
+  listByPrincipal(principal: AccessPrincipal): Promise<AccessRecord[]> {
+    return this.listByPrincipals([principal]);
+  }
+
+  async listByPrincipals(principals: readonly AccessPrincipal[]): Promise<AccessRecord[]> {
+    if (principals.length === 0) return [];
+    const { results } = await this.db.prepare(
+      `WITH wanted(principal_type, principal_id) AS MATERIALIZED (
+         SELECT json_extract(value, '$.kind'), CAST(json_extract(value, '$.id') AS INTEGER)
+         FROM json_each(?)
+       )
+       SELECT ${ACCESS_RECORD_COLUMNS} FROM access_records
+       JOIN wanted USING (principal_type, principal_id)
+       ORDER BY principal_type, principal_id, sort_order, id`,
+    ).bind(JSON.stringify(principals)).all<AccessRecordRow>();
+    return results.map(parseAccessRecord);
+  }
+
+  async save(input: AccessRecordInput): Promise<AccessRecord> {
+    validateAccessRecordInput(input);
+    const scope = canonicalAccessScope(input.scope);
+    const existing = await this.listByPrincipal(input.principal);
+    const current = existing.find(record => accessScopeKey(record.scope) === accessScopeKey(scope));
+    this.assertOrderAvailable({ ...input, scope }, existing, current?.id);
+    const now = new Date().toISOString();
+    const scopeJson = JSON.stringify(scope);
+    const row = await this.db.prepare(
+      `INSERT INTO access_records (principal_type, principal_id, scope_json, scope_key, sort_order, values_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (principal_type, principal_id, scope_key) DO UPDATE SET
+         scope_json = excluded.scope_json,
+         sort_order = excluded.sort_order,
+         values_json = excluded.values_json,
+         updated_at = excluded.updated_at
+       RETURNING ${ACCESS_RECORD_COLUMNS}`,
+    ).bind(input.principal.kind, input.principal.id, scopeJson, accessScopeKey(scope), input.sortOrder, JSON.stringify(input.values), now, now)
+      .first<AccessRecordRow>();
+    if (!row) throw new Error('accessRecords.save: write returned no rows');
+    return parseAccessRecord(row);
+  }
+
+  async replace(id: number, input: AccessRecordInput): Promise<AccessRecord | null> {
+    validateAccessRecordInput(input);
+    const current = await this.getById(id);
+    if (current === null) return null;
+    const sortOrder = sameModelOrderBoundary(current, input) ? current.sortOrder : input.sortOrder;
+    const next = { ...input, scope: canonicalAccessScope(input.scope) };
+    this.assertOrderAvailable({ ...next, sortOrder }, await this.listByPrincipal(input.principal), id);
+    // An edit must not undo a drag committed while its dialog was open. Read
+    // the surviving rank from the row again at the atomic write boundary.
+    const row = await this.db.prepare(
+      `UPDATE access_records SET
+         principal_type = ?, principal_id = ?, scope_json = ?, scope_key = ?,
+         sort_order = CASE
+           WHEN principal_type = ? AND principal_id = ?
+             AND json_extract(scope_json, '$.kind') = 'upstreamModel'
+             AND json_extract(scope_json, '$.upstreamId') = ?
+           THEN sort_order ELSE ? END,
+         values_json = ?, updated_at = ?
+       WHERE id = ?
+       RETURNING ${ACCESS_RECORD_COLUMNS}`,
+    ).bind(
+      input.principal.kind,
+      input.principal.id,
+      JSON.stringify(next.scope),
+      accessScopeKey(next.scope),
+      input.principal.kind,
+      input.principal.id,
+      input.scope.kind === 'upstreamModel' ? input.scope.upstreamId : null,
+      sortOrder,
+      JSON.stringify(input.values),
+      new Date().toISOString(),
+      id,
+    ).first<AccessRecordRow>();
+    return row ? parseAccessRecord(row) : null;
+  }
+
+  async reorderModel(upstreamId: string, expectedIds: readonly number[], ids: readonly number[]): Promise<AccessRecord[] | null> {
+    // Materialize the boundary and its original order before updating any row.
+    // A single guarded statement prevents partial ranks and stale drag snapshots.
+    const { results } = await this.db.prepare(
+      `WITH current_ids AS MATERIALIZED (
+         SELECT id FROM access_records
+         WHERE json_extract(scope_json, '$.kind') = 'upstreamModel'
+           AND json_extract(scope_json, '$.upstreamId') = ?
+         ORDER BY sort_order, id
+       ), valid_order AS MATERIALIZED (
+         SELECT json_group_array(id) = ? AS valid FROM current_ids
+       ), ranks AS (
+         SELECT CAST(value AS INTEGER) AS id, CAST(key AS INTEGER) AS rank FROM json_each(?)
+       )
+       UPDATE access_records SET
+         sort_order = (SELECT rank FROM ranks WHERE ranks.id = access_records.id), updated_at = ?
+       WHERE id IN (SELECT id FROM current_ids) AND (SELECT valid FROM valid_order)
+       RETURNING ${ACCESS_RECORD_COLUMNS}`,
+    ).bind(upstreamId, JSON.stringify(expectedIds), JSON.stringify(ids), new Date().toISOString()).all<AccessRecordRow>();
+    return results.length === 0 ? null : results.map(parseAccessRecord);
+  }
+
+  async delete(id: number): Promise<boolean> {
+    const result = await this.db.prepare('DELETE FROM access_records WHERE id = ?').bind(id).run();
+    return (result.meta.changes ?? 0) > 0;
+  }
+
+  async deleteByPrincipal(principal: AccessPrincipal): Promise<number> {
+    const result = await this.db.prepare('DELETE FROM access_records WHERE principal_type = ? AND principal_id = ?')
+      .bind(principal.kind, principal.id).run();
+    return result.meta.changes ?? 0;
+  }
+
+  async deleteAll(): Promise<void> {
+    await this.db.prepare('DELETE FROM access_records').run();
   }
 }
 
@@ -1139,7 +1315,7 @@ class SqlUpstreamRepo implements UpstreamRepo {
 
   async list(): Promise<StoredUpstreamRecord[]> {
     const { results } = await this.db
-      .prepare(`SELECT ${UPSTREAM_COLUMNS} FROM upstreams ORDER BY sort_order, created_at`)
+      .prepare(`SELECT ${UPSTREAM_COLUMNS} FROM upstreams ORDER BY sort_order, created_at, id`)
       .all<UpstreamRow>();
     return results.map(toUpstreamRecord);
   }
@@ -1150,6 +1326,59 @@ class SqlUpstreamRepo implements UpstreamRepo {
       .bind(id)
       .first<UpstreamRow>();
     return row ? toUpstreamRecord(row) : null;
+  }
+
+  async reorder(
+    expectedIds: readonly string[],
+    assignments: readonly { id: string; sortOrder: number }[],
+  ): Promise<StoredUpstreamRecord[] | null> {
+    const assignmentIds = assignments.map(assignment => assignment.id);
+    if (new Set(assignmentIds).size !== assignmentIds.length || assignmentIds.some(id => !expectedIds.includes(id))) return null;
+    const { results } = await this.db.prepare(
+      `WITH current_ids AS MATERIALIZED (
+         SELECT id FROM upstreams ORDER BY sort_order, created_at, id
+       ), valid_order AS MATERIALIZED (
+         SELECT json_group_array(id) = ? AS valid FROM current_ids
+       ), assignments AS MATERIALIZED (
+         SELECT
+           CAST(json_extract(value, '$.id') AS TEXT) AS id,
+           CAST(json_extract(value, '$.sortOrder') AS INTEGER) AS sort_order
+         FROM json_each(?)
+       )
+       UPDATE upstreams SET
+         sort_order = (SELECT sort_order FROM assignments WHERE assignments.id = upstreams.id),
+         updated_at = ?
+       WHERE id IN (SELECT id FROM assignments) AND (SELECT valid FROM valid_order)
+       RETURNING ${UPSTREAM_COLUMNS}`,
+    ).bind(JSON.stringify(expectedIds), JSON.stringify(assignments), new Date().toISOString()).all<UpstreamRow>();
+    if (results.length !== assignments.length) return null;
+    const byId = new Map(results.map(row => [row.id, toUpstreamRecord(row)]));
+    return assignments.map(({ id }) => byId.get(id)!);
+  }
+
+  async insertAtEndForModels(upstream: UpstreamRecord): Promise<StoredUpstreamRecord | null> {
+    const row = await this.db
+      .prepare(`INSERT INTO upstreams (id, provider, name, enabled, usage_refresh_interval_minutes, sort_order, created_at, updated_at, config_version, config_json, state_json, flag_overrides, disabled_public_model_ids, proxy_fallback_list_json, model_prefix_json, hue)
+        VALUES (?, ?, ?, ?, ?, (SELECT coalesce(max(sort_order), -1) + 1 FROM upstreams), ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (id) DO NOTHING RETURNING ${UPSTREAM_COLUMNS}`)
+      .bind(
+        upstream.id,
+        upstream.kind,
+        upstream.name,
+        upstream.enabled ? 1 : 0,
+        upstream.usageRefreshIntervalMinutes,
+        upstream.createdAt,
+        upstream.updatedAt,
+        serializeStoredConfig(upstream.config),
+        serializeStoredState(upstream.state),
+        JSON.stringify(normalizeFlagOverrides(upstream.flagOverrides)),
+        JSON.stringify(normalizeDisabledPublicModelIds(upstream.disabledPublicModelIds)),
+        JSON.stringify(normalizeProxyFallbackList(upstream.proxyFallbackList)),
+        upstream.modelPrefix === null ? null : JSON.stringify(upstream.modelPrefix),
+        upstream.hue,
+      )
+      .first<UpstreamRow>();
+    return row === null ? null : toUpstreamRecord(row);
   }
 
   async insertForModels(upstream: UpstreamRecord): Promise<StoredUpstreamRecord | null> {
@@ -1945,6 +2174,7 @@ export class SqlRepo implements Repo {
   users: UsersRepo;
   userPreferences: UserPreferencesRepo;
   groups: GroupsRepo;
+  accessRecords: AccessRecordsRepo;
   sessions: SessionsRepo;
   apiKeys: ApiKeyRepo;
   usage: UsageRepo;
@@ -1969,7 +2199,7 @@ export class SqlRepo implements Repo {
     const { results } = await this.db.prepare(`
       SELECT 'user' AS kind, id, json_object(
         'id', id, 'username', username, 'password_hash', password_hash,
-        'is_admin', is_admin, 'upstream_ids', upstream_ids,
+        'is_admin', is_admin,
         'created_at', created_at, 'deleted_at', deleted_at
       ) AS record FROM users WHERE deleted_at IS NULL
       UNION ALL
@@ -2006,6 +2236,7 @@ export class SqlRepo implements Repo {
     this.users = new SqlUsersRepo(db);
     this.userPreferences = new SqlUserPreferencesRepo(db);
     this.groups = new SqlGroupsRepo(db);
+    this.accessRecords = new SqlAccessRecordsRepo(db);
     this.sessions = new SqlSessionsRepo(db);
     this.apiKeys = new SqlApiKeyRepo(db);
     this.usage = new SqlUsageRepo(db);

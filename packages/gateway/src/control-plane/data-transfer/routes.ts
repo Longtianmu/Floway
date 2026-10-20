@@ -9,6 +9,7 @@
 // with the same care as a DB backup.
 
 import { parseImportData, type SerializedProxy } from './import-schema.ts';
+import type { AccessRecordInput } from '../../access-control/types.ts';
 import { parseWebSearchConfigDefault, parseWebSearchConfigStrict } from '../../data-plane/tools/web-search/config.ts';
 import type { WebSearchConfig } from '../../data-plane/tools/web-search/types.ts';
 import { notifyDisabledBestEffort } from '../../dump/registry.ts';
@@ -29,6 +30,7 @@ interface ExportPayload {
     users: User[];
     userPreferences: Awaited<ReturnType<UserPreferencesRepo['listAll']>>;
     groups: Array<Group & { memberIds: number[] }>;
+    accessRecords: AccessRecordInput[];
     apiKeys: ApiKey[];
     upstreams: FullSerializedUpstreamRecord[];
     proxies: SerializedProxy[];
@@ -101,15 +103,20 @@ const validateProxyFallbackReferences = (
   return null;
 };
 
+const normalizeUpstreamOrder = (upstreams: readonly UpstreamRecord[]): UpstreamRecord[] => upstreams
+  .toSorted((left, right) => left.sortOrder - right.sortOrder || left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
+  .map((upstream, sortOrder) => ({ ...upstream, sortOrder }));
+
 export const exportData = async (c: CtxWithQuery<typeof exportQuery>) => {
   const repo = getRepo();
   const includePerformance = c.req.valid('query').include_performance === '1';
   const memberships = await repo.groups.listMemberships();
 
-  const [users, userPreferences, groups, apiKeys, usage, webSearchUsage, upstreamMetrics, performance, rawWebSearchConfig, upstreams, proxies, siteSettings] = await Promise.all([
+  const [users, userPreferences, groups, accessRecords, apiKeys, usage, webSearchUsage, upstreamMetrics, performance, rawWebSearchConfig, upstreams, proxies, siteSettings] = await Promise.all([
     repo.users.listIncludingDeleted(),
     repo.userPreferences.listAll(),
     repo.groups.listIncludingDeleted(),
+    repo.accessRecords.list(),
     repo.apiKeys.listIncludingDeleted(),
     repo.usage.listAll(),
     repo.webSearchUsage.listAll(),
@@ -128,6 +135,7 @@ export const exportData = async (c: CtxWithQuery<typeof exportQuery>) => {
       users,
       userPreferences,
       groups: groups.map(group => ({ ...group, memberIds: memberships.get(group.id) ?? [] })),
+      accessRecords: accessRecords.map(({ principal, scope, sortOrder, values }) => ({ principal, scope, sortOrder, values })),
       apiKeys,
       upstreams: upstreams.map(upstreamRecordToFullJson),
       proxies: proxies.map(proxy => ({ id: proxy.id, name: proxy.name, url: proxy.url, dial_timeout_seconds: proxy.dialTimeoutSeconds })),
@@ -148,7 +156,7 @@ export const importData = async (c: CtxWithJson<typeof importBody>) => {
   const { mode, data: rawData } = c.req.valid('json');
   const parsed = parseImportData(rawData);
   if (parsed.type === 'invalid') return c.json({ error: parsed.error }, 400);
-  const { users, userPreferences, groups, apiKeys, upstreams, proxies, usage, searchUsage, upstreamMetrics, performance, performanceIncluded, searchConfig, siteSettings } = parsed.data;
+  const { users, userPreferences, groups, accessRecords, apiKeys, upstreams, proxies, usage, searchUsage, upstreamMetrics, performance, performanceIncluded, searchConfig, siteSettings } = parsed.data;
 
   const repo = getRepo();
   // Merge mode needs each key's prior dump policy to identify transitions that
@@ -171,6 +179,11 @@ export const importData = async (c: CtxWithJson<typeof importBody>) => {
   const existingProxyIdsForRefs = mode === 'merge' ? (await repo.proxies.list()).map(proxy => proxy.id) : [];
   const fallbackRefError = validateProxyFallbackReferences(upstreams, proxies, existingProxyIdsForRefs);
   if (fallbackRefError) return c.json({ error: `invalid upstreams: ${fallbackRefError}` }, 400);
+  const importedUpstreamIds = new Set(upstreams.map(upstream => upstream.id));
+  const retainedUpstreams = mode === 'merge'
+    ? (await repo.upstreams.list()).filter(upstream => !importedUpstreamIds.has(upstream.id))
+    : [];
+  const normalizedUpstreams = normalizeUpstreamOrder([...retainedUpstreams, ...upstreams]);
 
   if (mode === 'replace') {
     for (const key of preImportKeys) await notifyDisabledBestEffort(key.id, 'replace-mode import');
@@ -190,6 +203,7 @@ export const importData = async (c: CtxWithJson<typeof importBody>) => {
       repo.openaiResponsesSnapshots.deleteAll(),
       repo.openaiResponsesItems.deleteAll(),
       repo.userPreferences.deleteAll(),
+      repo.accessRecords.deleteAll(),
       repo.groups.deleteAll(),
       repo.users.deleteAll(),
     ];
@@ -201,6 +215,7 @@ export const importData = async (c: CtxWithJson<typeof importBody>) => {
   for (const user of users) await repo.users.save(user);
   for (const { userId, preferences } of userPreferences) await repo.userPreferences.save(userId, preferences);
   await repo.groups.restore(groups);
+  for (const record of accessRecords) await repo.accessRecords.save(record);
   for (const proxy of proxies) {
     await repo.proxies.save({
       id: proxy.id,
@@ -219,7 +234,7 @@ export const importData = async (c: CtxWithJson<typeof importBody>) => {
   for (const record of usage) await repo.usage.set(record);
   for (const record of searchUsage) await repo.webSearchUsage.set(record);
   for (const record of upstreamMetrics) await repo.upstreamMetrics.set(record);
-  await saveUpstreams(await Promise.all(upstreams.map(async next => ({
+  await saveUpstreams(await Promise.all(normalizedUpstreams.map(async next => ({
     previous: await repo.upstreams.getById(next.id),
     next,
   }))));
@@ -233,6 +248,7 @@ export const importData = async (c: CtxWithJson<typeof importBody>) => {
       users: users.length,
       userPreferences: userPreferences.length,
       groups: groups.length,
+      accessRecords: accessRecords.length,
       apiKeys: apiKeys.length,
       upstreams: upstreams.length,
       proxies: proxies.length,

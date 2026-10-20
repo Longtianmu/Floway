@@ -16,8 +16,8 @@ const unknownMembersError = async (memberIds: readonly number[]): Promise<string
 };
 
 const groupWire = async (group: Group) => {
-  const repo = getRepo();
-  return { ...group, memberIds: await repo.groups.listMemberIds(group.id) };
+  const memberIds = await getRepo().groups.listMemberIds(group.id);
+  return { ...group, memberIds };
 };
 
 export const listGroups = async (c: AuthedContext) => {
@@ -64,6 +64,7 @@ export const deleteGroup = async (c: AuthedContext) => {
   if (id === null) return c.json({ error: 'invalid group id' }, 400);
   const repo = getRepo();
   if (!await repo.groups.getById(id)) return c.json({ error: 'group not found' }, 404);
+  await repo.accessRecords.deleteByPrincipal({ kind: 'group', id });
   await repo.groups.softDelete(id);
   return c.json({ ok: true });
 };

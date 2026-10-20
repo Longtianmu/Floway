@@ -45,7 +45,6 @@ interface KeyDialogCommonProps {
   onSaved: (key: ApiKey) => Promise<void>;
   models: ControlPlaneModel[];
   upstreams: UpstreamOption[];
-  userUpstreamIds: string[] | null;
 }
 
 type KeyDialogProps = KeyDialogCommonProps & (
@@ -54,19 +53,13 @@ type KeyDialogProps = KeyDialogCommonProps & (
 );
 
 export function KeyDialog(props: KeyDialogProps) {
-  const { mode, models, onOpenChange, onSaved, upstreams, userUpstreamIds } = props;
+  const { mode, models, onOpenChange, onSaved, upstreams } = props;
   const { t } = useTranslation();
   const toasts = useOutcomeToasts();
   const isCreate = mode === 'create';
   const apiKey = props.mode === 'edit' ? props.apiKey : null;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const visibleUpstreams = useMemo(() => {
-    if (userUpstreamIds === null) return upstreams;
-    const allowed = new Set(userUpstreamIds);
-    return upstreams.filter(upstream => allowed.has(upstream.id));
-  }, [upstreams, userUpstreamIds]);
 
   const schema = useMemo(
     () =>
@@ -198,7 +191,7 @@ export function KeyDialog(props: KeyDialogProps) {
       />
 
       <UpstreamAccessControl
-        available={visibleUpstreams}
+        available={upstreams}
         disabled={saving}
         ids={values.upstreamIds}
         models={models}

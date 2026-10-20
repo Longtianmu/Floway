@@ -17,7 +17,7 @@ import { QuotaProgressRow } from '../upstreams/quota-progress-row';
 
 const { Text } = fluentComponents;
 
-export function CopilotQuotaCard({ record }: { record: CopilotRecord }) {
+export function CopilotQuotaCard({ readOnly = false, record }: { readOnly?: boolean; record: CopilotRecord }) {
   const { t } = useTranslation();
   const preferences = useUserPreferences();
   const locale = useLocale();
@@ -51,7 +51,7 @@ export function CopilotQuotaCard({ record }: { record: CopilotRecord }) {
   const resets = quota?.reset_at == null ? null : shortDate(quota.reset_at, locale);
 
   return <section className={SECTION_STACK_CLASS}>
-    <SectionHeader level={3} title={t('dashboard.upstreamEditor.copilot.quota.title')} actions={
+    <SectionHeader level={3} title={t('dashboard.upstreamEditor.copilot.quota.title')} actions={!readOnly &&
       <ResourceListActions
         appearance="subtle"
         onRefresh={() => void load()}

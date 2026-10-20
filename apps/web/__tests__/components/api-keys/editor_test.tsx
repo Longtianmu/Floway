@@ -23,7 +23,7 @@ describe('API key upstream limits', () => {
     const onSaved = vi.fn(async () => {});
     renderInApp(<OutcomeToastProvider><KeyDialog
       {...(mode === 'create' ? { mode } : { mode, apiKey })}
-      models={[]} onOpenChange={vi.fn()} onSaved={onSaved} open upstreams={[]} userUpstreamIds={[]}
+      models={[]} onOpenChange={vi.fn()} onSaved={onSaved} open upstreams={[]}
     /></OutcomeToastProvider>);
     const toggle = screen.getByRole('switch', { name: i18n.t('dashboard.upstreamAccess.title') });
     if (mode === 'create') {
@@ -61,7 +61,6 @@ describe('API key upstream limits', () => {
       onSaved={vi.fn(async () => {})}
       open
       upstreams={[]}
-      userUpstreamIds={[]}
     /></OutcomeToastProvider>);
 
     const toggle = screen.getByRole('switch', { name: i18n.t('dashboard.apiKeys.form.randomizeUpstreams') });

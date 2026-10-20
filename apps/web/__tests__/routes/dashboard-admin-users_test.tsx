@@ -12,12 +12,12 @@ const groups: ControlPlaneGroup[] = [
   { id: 1, name: 'Platform', hue: 210, createdAt: '2026-10-01T00:00:00Z', deletedAt: null },
   { id: 2, name: 'Research', hue: 150, createdAt: '2026-10-01T00:00:00Z', deletedAt: null },
 ];
-const user: ControlPlaneUser = { id: 1, username: 'frank', isAdmin: true, upstreamIds: null, createdAt: '2026-10-01T00:00:00Z', preferences: { quotaDisplay: 'remaining', language: null } };
+const user: ControlPlaneUser = { id: 1, username: 'frank', isAdmin: true, createdAt: '2026-10-01T00:00:00Z', preferences: { quotaDisplay: 'remaining', language: null } };
 const memberships = [
   { groupId: 1, userId: 1, createdAt: '2026-10-10T09:30:00Z' },
   { groupId: 2, userId: 1, createdAt: '2026-10-12T10:00:00Z' },
 ];
-const loaderData = { directory: { users: [user], groups, memberships }, models: [], upstreams: [], error: null };
+const loaderData = { directory: { users: [user], groups, memberships }, error: null };
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -120,8 +120,6 @@ test('retains the complete directory and edit membership when refreshing it fail
     const path = new URL(String(input), 'http://localhost').pathname;
     requested.push(path);
     if (path === '/api/user-directory') return Response.json({ error: 'Directory unavailable' }, { status: 503 });
-    if (path === '/api/upstream-options') return Response.json([]);
-    if (path === '/api/models') return Response.json({ data: [] });
     throw new Error(`Unexpected request: ${path}`);
   });
   renderPage();
@@ -130,7 +128,7 @@ test('retains the complete directory and edit membership when refreshing it fail
   await screen.findByText('Directory unavailable');
   expect(screen.getByRole('link', { name: 'Platform' })).toBeTruthy();
   expect(screen.getByRole('link', { name: 'Research' })).toBeTruthy();
-  expect(requested.toSorted()).toEqual(['/api/models', '/api/upstream-options', '/api/user-directory']);
+  expect(requested).toEqual(['/api/user-directory']);
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'frank' })); });
   const dialog = screen.getByRole('dialog');
   expect(dialog.textContent).toContain('Platform');
@@ -139,13 +137,7 @@ test('retains the complete directory and edit membership when refreshing it fail
 
 test('keeps account dates visible and locks every editor during refresh', async () => {
   let finish!: (response: Response) => void;
-  vi.spyOn(globalThis, 'fetch').mockImplementation(input => {
-    const path = new URL(String(input), 'http://localhost').pathname;
-    if (path === '/api/upstream-options') return Promise.resolve(Response.json([]));
-    if (path === '/api/models') return Promise.resolve(Response.json({ data: [] }));
-    if (path === '/api/user-directory') return new Promise(resolve => { finish = resolve; });
-    throw new Error(`Unexpected request: ${path}`);
-  });
+  vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise(resolve => { finish = resolve; }));
   renderPage();
   const name = await screen.findByRole<HTMLButtonElement>('button', { name: 'frank' });
   expect(screen.getByRole('columnheader', { name: 'Created' })).toBeTruthy();
@@ -178,8 +170,6 @@ test('refreshes both membership directions from the same directory response', as
   vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
     const path = new URL(String(input), 'http://localhost').pathname;
     if (path === '/api/user-directory') return Response.json(updated);
-    if (path === '/api/upstream-options') return Response.json([]);
-    if (path === '/api/models') return Response.json({ data: [] });
     throw new Error(`Unexpected request: ${path}`);
   });
   renderPage();
@@ -196,8 +186,6 @@ test('keeps an open user editor paired with the group metadata it was opened wit
   vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
     const path = new URL(String(input), 'http://localhost').pathname;
     if (path === '/api/user-directory') return Response.json({ users: [user], groups: [], memberships: [] });
-    if (path === '/api/upstream-options') return Response.json([]);
-    if (path === '/api/models') return Response.json({ data: [] });
     throw new Error(`Unexpected request: ${path}`);
   });
   renderPage();

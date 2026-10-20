@@ -1,8 +1,8 @@
-import { act, fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { createMemoryRouter, Outlet, RouterProvider, useLoaderData } from 'react-router';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
-import type { UpstreamRecord } from '../../src/api/types';
+import type { ListedUpstreamRecord, UpstreamRecord } from '../../src/api/types';
 import { OutcomeToastProvider } from '../../src/components/ui/outcome-toast';
 import DashboardProvidersUpstreams from '../../src/routes/dashboard-providers-upstreams';
 import { upstreamRecord } from '../api/upstream-fixture';
@@ -14,18 +14,38 @@ stubLocalStorage();
 beforeEach(() => { primeDefaultSession(); vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 1100, 320)); });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
-const user = { id: 1, username: 'admin', isAdmin: true, upstreamIds: null };
-const upstreams: UpstreamRecord[] = ['First', 'Second'].map((name, index) => upstreamRecord(name.toLowerCase(), {
+const user = { id: 1, username: 'admin', isAdmin: true, canViewPermissions: true, canViewUpstreams: true };
+const records: UpstreamRecord[] = ['First', 'Second'].map((name, index) => upstreamRecord(name.toLowerCase(), {
   name, kind: 'copilot', enabled: false, sort_order: index, created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:00:00Z',
   config: { githubHost: 'github.com', githubTokenSet: true, user: { id: index + 1, login: name.toLowerCase(), name, avatar_url: '' } },
   state: null, flag_overrides: {}, disabled_public_model_ids: [], proxy_fallback_list: [], model_prefix: null, hue: 210,
   usage_refresh_interval_minutes: 0, modelsCache: { fetchedAt: null, lastError: null, modelCount: null },
 }));
-const loaderData = { upstreams, models: [], loadError: null, modelsError: null };
-const renderPage = () => renderInApp(<RouterProvider router={createMemoryRouter([
+const toListed = (
+  record: UpstreamRecord,
+  access: { audit: boolean; edit: ListedUpstreamRecord['editLevel'] } = { audit: true, edit: 'full' },
+  overrides: Partial<ListedUpstreamRecord> = {},
+): ListedUpstreamRecord => ({
+  ...record,
+  audit: access.audit,
+  editLevel: access.edit,
+  modelUse: true,
+  reorderGroup: access.edit === 'full' ? 'default-full-segment' : null,
+  ...overrides,
+} as ListedUpstreamRecord);
+const listedRecords = (source: readonly UpstreamRecord[]): ListedUpstreamRecord[] => source.map(record => toListed(record));
+const loaderData = {
+  upstreams: listedRecords(records),
+  models: [], loadError: null, modelsError: null,
+};
+const withAccess = (audit: boolean, edit: 'off' | 'models' | 'full'): typeof loaderData => ({
+  ...loaderData,
+  upstreams: loaderData.upstreams.map((record, index) => index === 0 ? toListed(record, { audit, edit }) : record),
+});
+const renderPage = (displayUser = user, pageData: typeof loaderData = loaderData) => renderInApp(<RouterProvider router={createMemoryRouter([
   {
-    path: '/dashboard', element: <OutcomeToastProvider><Outlet context={{ user }} /></OutcomeToastProvider>, children: [
-      { path: 'providers/upstreams', loader: () => loaderData, Component: () => <DashboardProvidersUpstreams loaderData={useLoaderData() as never} params={{}} matches={[] as never} /> },
+    path: '/dashboard', element: <OutcomeToastProvider><Outlet context={{ user: displayUser }} /></OutcomeToastProvider>, children: [
+      { path: 'providers/upstreams', loader: () => pageData, Component: () => <DashboardProvidersUpstreams loaderData={useLoaderData() as never} params={{}} matches={[] as never} /> },
       { path: 'providers/upstreams/:id', element: <div>Editor</div> },
     ],
   },
@@ -34,7 +54,7 @@ const metricsButton = (name: string) => screen.getAllByRole('button', { name: `U
 const overview = (groupBy = 'model') => ({
   series: [{ bucket: new Date(Date.now() - 3_600_000).toISOString().slice(0, 13), group: groupBy === 'model' ? 'gpt-5' : '1', requests: 1, metrics: [{ metric: 'input_tokens', quantity: '10' }], cost: null }],
   axes: { none: [], model: [], upstream: [], userId: [], keyId: [] },
-  dimensionValues: { models: ['gpt-5'], upstreams: ['upstream:first'], userIds: [1], keyIds: [] }, users: [{ id: 1, username: 'admin' }], keys: [],
+  dimensionValues: { models: ['gpt-5'], upstreams: ['upstream:first'], userIds: [1], keyIds: [] }, users: [{ id: 1, username: 'admin' }], auditableUserIds: [1], upstreams: [{ id: 'first', name: 'First', hue: 210 }], keys: [],
 });
 const metrics = (url: URL) => ({
   start: Number(url.searchParams.get('start')), end: Number(url.searchParams.get('end')), step: Number(url.searchParams.get('step')),
@@ -43,9 +63,12 @@ const metrics = (url: URL) => ({
     { upstreamId: url.searchParams.get('upstream_id'), name: 'quota.entitlement', labels: { quota: 'premium_interactions' }, timestamp: Date.now() - 1_000, value: 100 },
   ],
 });
-const stubGateway = (handler: (url: URL, signal: AbortSignal | undefined) => Promise<Response>) => vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+const stubGateway = (
+  handler: (url: URL, signal: AbortSignal | undefined) => Promise<Response>,
+  pageData: typeof loaderData = loaderData,
+) => vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = new URL(input instanceof Request ? input.url : String(input), 'http://localhost');
-  if (url.pathname === '/api/upstreams') return Response.json(upstreams);
+  if (url.pathname === '/api/upstreams') return Response.json(pageData.upstreams);
   if (url.pathname === '/api/models') return Response.json({ data: [] });
   return await handler(url, init?.signal as AbortSignal | undefined);
 }));
@@ -148,16 +171,14 @@ it('expands the whole row while preserving switch, icon and navigation actions',
 }, 15_000);
 
 it('handles a reorder shortcut once at the item container', async () => {
-  const writes: { id: string; sort_order: number }[] = [];
+  const reorders: Array<{ expectedIds: string[]; ids: string[] }> = [];
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input), 'http://localhost');
-    if (init?.method === 'PATCH') {
-      const id = url.pathname.split('/').at(-1)!;
-      const body = JSON.parse(init.body as string) as { sort_order: number };
-      writes.push({ id, ...body });
-      return Response.json({ ...upstreams.find(record => record.id === id)!, ...body });
+    if (url.pathname === '/api/upstreams/reorder' && init?.method === 'POST') {
+      reorders.push(JSON.parse(init.body as string));
+      return Response.json({ ok: true });
     }
-    if (url.pathname === '/api/upstreams') return Response.json(upstreams);
+    if (url.pathname === '/api/upstreams') return Response.json(loaderData.upstreams);
     if (url.pathname === '/api/models') return Response.json({ data: [] });
     throw new Error(`Unexpected request: ${url.pathname}`);
   }));
@@ -167,6 +188,116 @@ it('handles a reorder shortcut once at the item container', async () => {
   fireEvent.keyDown(handle, { key: 'ArrowDown' });
   expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Reorder upstream Second' }));
   fireEvent.keyDown(handle, { key: 'ArrowDown', altKey: true, shiftKey: true });
-  await waitFor(() => expect(writes).toHaveLength(2));
-  expect(writes).toEqual([{ id: 'second', sort_order: 0 }, { id: 'first', sort_order: 1 }]);
+  await waitFor(() => expect(reorders).toEqual([{ expectedIds: ['first', 'second'], ids: ['second', 'first'] }]));
+});
+
+it('opens telemetry and the read-only editor for an audit-only row while keeping mutations unavailable', async () => {
+  const pageData = {
+    ...withAccess(true, 'off'),
+    upstreams: withAccess(true, 'off').upstreams.map((record, index) => index === 0 ? { ...record, modelUse: false, modelsCache: { ...record.modelsCache, modelCount: 7 } } : record),
+  };
+  stubGateway(async url => {
+    if (url.pathname === '/api/token-usage/overview') return Response.json(overview());
+    if (url.pathname === '/api/upstream-metrics') return Response.json(metrics(url));
+    throw new Error(`Unexpected request: ${url.pathname}`);
+  }, pageData);
+  renderPage({ id: 2, username: 'auditor', isAdmin: false, canViewPermissions: false, canViewUpstreams: true }, pageData);
+
+  const row = await screen.findByRole('row', { name: 'Usage and metrics for First' });
+  expect(screen.getByRole('link', { name: 'First' })).toBeTruthy();
+  expect(within(row).getByText('7 models')).toBeTruthy();
+  expect(screen.getByRole('link', { name: 'Edit upstream First' }).getAttribute('aria-disabled')).toBeNull();
+  expect(screen.getByRole('switch', { name: 'Toggle upstream First' }).hasAttribute('disabled')).toBe(true);
+  expect(screen.queryByRole('button', { name: 'Copy upstream First' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Delete upstream First' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Reorder upstream First' }).hasAttribute('disabled')).toBe(true);
+
+  fireEvent.click(metricsButton('First'));
+  await waitFor(() => expect(row.getAttribute('aria-expanded')).toBe('true'));
+});
+
+it('shows a models row with models editing but a disabled switch and drag handle', async () => {
+  stubGateway(async url => {
+    if (url.pathname === '/api/token-usage/overview') return Response.json(overview());
+    if (url.pathname === '/api/upstream-metrics') return Response.json(metrics(url));
+    throw new Error(`Unexpected request: ${url.pathname}`);
+  });
+  renderPage({ id: 2, username: 'model-editor', isAdmin: false, canViewPermissions: false, canViewUpstreams: true }, withAccess(false, 'models'));
+  expect(await screen.findByRole('link', { name: 'First' })).toBeTruthy();
+  expect(screen.getByRole('switch', { name: 'Toggle upstream First' }).hasAttribute('disabled')).toBe(true);
+  expect(screen.getByRole('button', { name: 'Reorder upstream First' }).hasAttribute('disabled')).toBe(true);
+  expect(metricsButton('First').hasAttribute('disabled')).toBe(true);
+});
+
+it('lets only a contiguous full segment move and leaves its locked neighbours in place', async () => {
+  const segmented = ['Locked', 'Full A', 'Full B', 'Tail'].map((name, index) => toListed(records[index % 2]!, {
+    audit: true,
+    edit: index === 1 || index === 2 ? 'full' : 'off',
+  }, { id: name.toLowerCase().replaceAll(' ', '-'), name, sort_order: index }));
+  const reorders: Array<{ expectedIds: string[]; ids: string[] }> = [];
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : String(input), 'http://localhost');
+    if (url.pathname === '/api/upstreams/reorder' && init?.method === 'POST') {
+      reorders.push(JSON.parse(init.body as string));
+      return Response.json({ ok: true });
+    }
+    if (url.pathname === '/api/upstreams') return Response.json(segmented);
+    if (url.pathname === '/api/models') return Response.json({ data: [] });
+    throw new Error(`Unexpected request: ${url.pathname}`);
+  }));
+  renderPage(user, { ...loaderData, upstreams: segmented });
+
+  const handle = await screen.findByRole('button', { name: 'Reorder upstream Full A' });
+  handle.focus();
+  fireEvent.keyDown(handle, { key: 'ArrowDown', altKey: true, shiftKey: true });
+  await waitFor(() => expect(reorders).toEqual([{ expectedIds: ['full-a', 'full-b'], ids: ['full-b', 'full-a'] }]));
+  const ranks = [...document.querySelectorAll('[data-reorder-item]')].map(row => row.textContent);
+  expect(ranks[0]).toContain('1');
+  expect(ranks[3]).toContain('4');
+});
+
+it('does not move visible Full rows separated by a hidden server-side boundary', async () => {
+  const separated = ['Full A', 'Full B'].map((name, index) => toListed(records[index]!, {
+    audit: true,
+    edit: 'full',
+  }, { id: name.toLowerCase().replaceAll(' ', '-'), name, reorderGroup: `segment-${index}` }));
+  const reorders: unknown[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : String(input), 'http://localhost');
+    if (url.pathname === '/api/upstreams/reorder' && init?.method === 'POST') { reorders.push(init.body); return Response.json({ ok: true }); }
+    if (url.pathname === '/api/upstreams') return Response.json(separated);
+    if (url.pathname === '/api/models') return Response.json({ data: [] });
+    throw new Error(`Unexpected request: ${url.pathname}`);
+  }));
+  renderPage(user, { ...loaderData, upstreams: separated });
+
+  const handle = await screen.findByRole('button', { name: 'Reorder upstream Full A' });
+  handle.focus();
+  expect(handle.hasAttribute('disabled')).toBe(false);
+  fireEvent.keyDown(handle, { key: 'ArrowDown', altKey: true, shiftKey: true });
+  expect(reorders).toEqual([]);
+});
+
+it('renders a lone full row as a pressable but immovable handle', async () => {
+  const segmented = ['Locked A', 'Only Full', 'Locked B'].map((name, index) => toListed(records[index % 2]!, {
+    audit: true,
+    edit: index === 1 ? 'full' : 'off',
+  }, { id: name.toLowerCase().replaceAll(' ', '-'), name, sort_order: index }));
+  const reorders: unknown[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : String(input), 'http://localhost');
+    if (url.pathname === '/api/upstreams/reorder' && init?.method === 'POST') { reorders.push(init.body); return Response.json({ ok: true }); }
+    if (url.pathname === '/api/upstreams') return Response.json(segmented);
+    if (url.pathname === '/api/models') return Response.json({ data: [] });
+    throw new Error(`Unexpected request: ${url.pathname}`);
+  }));
+  renderPage(user, { ...loaderData, upstreams: segmented });
+  const handle = await screen.findByRole('button', { name: 'Reorder upstream Only Full' });
+  handle.focus();
+  expect(handle.hasAttribute('disabled')).toBe(false);
+  fireEvent.pointerDown(handle, { button: 0, clientY: 10, isPrimary: true, pointerId: 1 });
+  expect(handle.closest('[data-reorder-item]')?.getAttribute('data-reorder-edge')).toBe('first');
+  fireEvent.pointerUp(window, { clientY: 10, pointerId: 1 });
+  fireEvent.keyDown(handle, { key: 'ArrowDown', altKey: true, shiftKey: true });
+  expect(reorders).toEqual([]);
 });

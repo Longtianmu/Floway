@@ -1,3 +1,4 @@
+import type { AccessPrincipal, AccessRecord, AccessRecordInput } from '../access-control/types.ts';
 import type { WebSearchConfig, WebSearchProviderName } from '../shared/web-search-providers.ts';
 import type { AgentSetupRepository } from '@floway-dev/agent-setup';
 import type { AliasSelection, AliasTarget, AnnouncedMetadata, BillingMetric, DecimalString, ModelKind, PricingSelector, UserPreferences } from '@floway-dev/protocols/common';
@@ -17,9 +18,8 @@ export interface ApiKey {
   serverSecret: string;
   createdAt: string;
   lastUsedAt?: string;
-  // null = inherit the user-level cap; array = whitelist in priority order.
-  // When both levels carry a list the effective list is their intersection
-  // taken in this order, so a key that sets one also decides the priority.
+  // null = do not narrow the user's Model.Use grants; an array limits them to
+  // these upstreams in this priority order.
   upstreamIds: string[] | null;
   // Shuffle the effective upstream order once per model resolution.
   randomizeUpstreams: boolean;
@@ -39,11 +39,6 @@ export interface User {
   // dev-only passwordless shortcut when ADMIN_KEY is unset).
   passwordHash: string | null;
   isAdmin: boolean;
-  // null = unrestricted at the user level; an array intersects with the
-  // per-key whitelist when both are present. Membership only — the key's
-  // order carries the intersection, so this order applies only to requests
-  // whose key sets no list of its own.
-  upstreamIds: string[] | null;
   createdAt: string;
   deletedAt: string | null;
 }
@@ -98,6 +93,8 @@ export interface UsageOverviewFilters {
 export interface UsageOverviewQueryOptions {
   actorUserId: number;
   isAdmin: boolean;
+  visibleUserIds: readonly number[];
+  visibleUpstreams: readonly string[];
   start: string;
   end: string;
   groupBy: UsageOverviewGroupBy;
@@ -235,6 +232,8 @@ export interface PerformanceOverviewFilters {
 export interface PerformanceOverviewQueryOptions {
   actorUserId: number;
   isAdmin: boolean;
+  visibleUserIds: readonly number[];
+  visibleUpstreams: readonly string[];
   start: string;
   end: string;
   groupBy: PerformanceOverviewGroupBy;
@@ -337,6 +336,19 @@ export interface GroupsRepo {
   deleteAll(): Promise<void>;
 }
 
+export interface AccessRecordsRepo {
+  list(): Promise<AccessRecord[]>;
+  getById(id: number): Promise<AccessRecord | null>;
+  listByPrincipal(principal: AccessPrincipal): Promise<AccessRecord[]>;
+  listByPrincipals(principals: readonly AccessPrincipal[]): Promise<AccessRecord[]>;
+  save(input: AccessRecordInput): Promise<AccessRecord>;
+  replace(id: number, input: AccessRecordInput): Promise<AccessRecord | null>;
+  reorderModel(upstreamId: string, expectedIds: readonly number[], ids: readonly number[]): Promise<AccessRecord[] | null>;
+  delete(id: number): Promise<boolean>;
+  deleteByPrincipal(principal: AccessPrincipal): Promise<number>;
+  deleteAll(): Promise<void>;
+}
+
 export interface SessionsRepo {
   getByIdAndTouch(id: string): Promise<Session | null>;
   create(userId: number): Promise<Session>;
@@ -411,6 +423,11 @@ export interface WebSearchConfigRepo {
 export interface UpstreamRepo {
   list(): Promise<StoredUpstreamRecord[]>;
   getById(id: string): Promise<StoredUpstreamRecord | null>;
+  reorder(
+    expectedIds: readonly string[],
+    assignments: readonly { id: string; sortOrder: number }[],
+  ): Promise<StoredUpstreamRecord[] | null>;
+  insertAtEndForModels(upstream: UpstreamRecord): Promise<StoredUpstreamRecord | null>;
   insertForModels(upstream: UpstreamRecord): Promise<StoredUpstreamRecord | null>;
   replaceForModels(input: {
     previous: StoredUpstreamRecord;
@@ -644,6 +661,7 @@ export interface Repo {
   users: UsersRepo;
   userPreferences: UserPreferencesRepo;
   groups: GroupsRepo;
+  accessRecords: AccessRecordsRepo;
   sessions: SessionsRepo;
   usage: UsageRepo;
   webSearchUsage: WebSearchUsageRepo;

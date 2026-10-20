@@ -8,7 +8,7 @@
 //
 // `limits`, `chat`, `endpoints`, and `pricing` are computed against the
 // GATEWAY-WIDE addressable surface — every caller sees the same numbers
-// for the same alias, independent of their data-plane cap. The operator's
+// for the same alias, independent of caller visibility. The operator's
 // stored `announced_metadata` override still wins at sub-block
 // granularity (a present `limits` / `chat` replaces the computed
 // counterpart wholesale, not per-leaf). The intersection is the safe
@@ -24,7 +24,7 @@
 //
 // Caller-scope (the addressable surface this specific request can
 // reach) controls only two things: whether the alias appears in this
-// caller's response (at least one target reachable under the cap), and
+// caller's response (at least one target in that caller-scoped set), and
 // the `aliasedFrom.targets` projection when `narrowTargets` is true.
 //
 // Collision: when an alias's `name` exactly equals a real model id, the
@@ -61,7 +61,7 @@ export interface ListedAliasInputs {
   // data-plane response, and non-admin control-plane responses. False
   // for admin sessions on the control plane: the alias-edit dialog
   // needs to see every target the operator wired, including typos and
-  // targets on upstreams the admin self-restricted out of, so the
+  // targets that are typo'd, removed, or currently unavailable, so the
   // configuration is editable end to end.
   readonly narrowTargets: boolean;
 }
@@ -216,7 +216,7 @@ const commonOpaqueBlobCompatibilityScope = (
 // operator state (target IDs from upstreams they have no access to, plus
 // typo'd / removed model IDs). `narrowTargets=false` is the admin-debug
 // view: every configured target survives so the dashboard's alias editor
-// can render the full configuration even when the admin self-restricted.
+// can render the full configured target list, including unavailable targets.
 const buildAliasedFrom = (
   alias: ModelAliasRecord,
   addressableModelIds: readonly AddressableIdEntry[],

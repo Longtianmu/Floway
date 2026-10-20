@@ -12,7 +12,6 @@ test('group management routes require admin', async () => {
   const { apiKey } = await setupAppTest();
   const response = await requestApp('/api/groups', { headers: { 'x-api-key': apiKey.key } });
   assertEquals(response.status, 403);
-  assertEquals((await requestApp('/api/user-directory', { headers: { 'x-api-key': apiKey.key } })).status, 403);
 });
 
 test('user directory sends entities and membership records once in one repository snapshot', async () => {
@@ -23,7 +22,7 @@ test('user directory sends entities and membership records once in one repositor
   repo.groups.list = () => { throw new Error('directory must not assemble separate repository reads'); };
   const response = await request('/user-directory', adminSession);
   expect(response.status).toBe(200);
-  const body = await response.json() as { users: Array<{ id: number; passwordHash?: string }>; groups: Array<{ id: number }>; memberships: Array<{ groupId: number; userId: number; createdAt: string }> };
+  const body = await response.json() as { users: Array<{ id: number; passwordHash?: string }>; groups: Array<{ id: number }>; memberships: Array<{ groupId: number; userId: number; createdAt: string }>; principalUserIds: number[]; principalGroupIds: number[] };
   expect(body.groups).toEqual([group]);
   expect(body.memberships).toEqual([{ groupId: group.id, userId: 2, createdAt: expect.any(String) }]);
   expect(body.users.every(user => !Object.hasOwn(user, 'groupIds'))).toBe(true);
@@ -67,9 +66,11 @@ test('deleting a group clears memberships', async () => {
   const { adminSession, repo } = await setupAppTest();
   const group = await repo.groups.create('Operators', 120);
   await repo.groups.replaceMembers(group.id, [2]);
+  await repo.accessRecords.save({ principal: { kind: 'group', id: group.id }, scope: { kind: 'upstreams' }, sortOrder: 0, values: { 'Model.Use': true } });
   const response = await request(`/groups/${group.id}`, adminSession, { method: 'DELETE' });
   assertEquals(response.status, 200);
   assertEquals(await repo.groups.listIdsByUserId(2), []);
+  assertEquals(await repo.accessRecords.listByPrincipal({ kind: 'group', id: group.id }), []);
 });
 
 test('updates color without changing membership and rejects invalid hue angles', async () => {

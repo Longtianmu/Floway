@@ -53,7 +53,7 @@ const record = upstreamRecord('up_test', {
 });
 if (record.kind !== 'custom') throw new Error('test fixture must be a custom upstream');
 
-function Harness({ discovered = [], modelsError = null, source = record }: { discovered?: UpstreamModelConfig[]; modelsError?: ModelListingFailure | null; source?: UpstreamRecord }) {
+function Harness({ discovered = [], editLevel = 'full', modelsError = null, source = record }: { discovered?: UpstreamModelConfig[]; editLevel?: 'off' | 'models' | 'full'; modelsError?: ModelListingFailure | null; source?: UpstreamRecord }) {
   const form = useForm<UpstreamEditorValues>({ defaultValues: valuesFromRecord(source) });
   const [modelsYamlDraft, setModelsYamlDraft] = useState<ModelsYamlDraft | null>(null);
   return (
@@ -62,6 +62,7 @@ function Harness({ discovered = [], modelsError = null, source = record }: { dis
     <MemoryRouter>
       <FormProvider {...form}>
         <UpstreamWorkspace
+          editLevel={editLevel}
           discovered={discovered}
           modelsYamlDraft={modelsYamlDraft}
           modelsLoading={false}
@@ -87,6 +88,28 @@ const deleteCommandStem = i18n.t('dashboard.upstreamEditor.models.deleteNamed', 
 const deleteCommands = () => screen.getAllByLabelText(new RegExp(`^${deleteCommandStem}`));
 
 describe('upstream model workspace field-array transitions', () => {
+  it('keeps the enable switch and refresh available for a provider-owned catalog', () => {
+    const copilot = upstreamRecord('up_copilot', {
+      name: 'Copilot',
+      kind: 'copilot',
+      config: { githubHost: 'github.com', githubToken: '', user: { id: 1, login: 'operator', name: null, avatar_url: '' } },
+      state: null,
+    });
+    renderInApp(<Harness discovered={[{ upstreamModelId: 'gpt-5', publicModelId: 'gpt-5', kind: 'chat', endpoints: { openaiResponses: {} } }]} source={copilot} />);
+    const toggle = screen.getAllByRole('switch').find(node => node.getAttribute('aria-label')?.includes('gpt-5'))!;
+    expect(toggle.getAttribute('aria-disabled')).not.toBe('true');
+    expect(toggle.hasAttribute('disabled')).toBe(false);
+  });
+
+  it('renders the enable switch read-only for an audit-only editor', () => {
+    renderInApp(<Harness editLevel="off" />);
+    const toggle = screen.getAllByRole('switch').find(node => node.getAttribute('aria-label')?.includes('model-a'))!;
+    expect(toggle.getAttribute('aria-readonly')).toBe('true');
+    expect((toggle as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(toggle);
+    expect((toggle as HTMLInputElement).checked).toBe(true);
+  });
+
   const detailLabel = models('imageDetailOriginal');
 
   it('opens a newly added model in the detail editor', async () => {
