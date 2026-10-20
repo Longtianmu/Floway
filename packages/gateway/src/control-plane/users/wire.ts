@@ -13,6 +13,11 @@ export const userToSessionWire = (user: User, knownUpstreamIds: ReadonlySet<stri
   preferences,
 });
 
+export const userToDirectoryWire = (user: User, knownUpstreamIds: ReadonlySet<string>, preferences: UserPreferences) => ({
+  ...userToSessionWire(user, knownUpstreamIds, preferences),
+  createdAt: user.createdAt,
+});
+
 export const userToAdminWire = (user: User, knownUpstreamIds: ReadonlySet<string>, groupIds: readonly number[], preferences: UserPreferences) => ({
   ...userToSessionWire(user, knownUpstreamIds, preferences),
   groupIds,

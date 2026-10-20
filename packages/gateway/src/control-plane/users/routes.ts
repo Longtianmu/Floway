@@ -1,4 +1,4 @@
-import { userToAdminWire } from './wire.ts';
+import { userToAdminWire, userToDirectoryWire } from './wire.ts';
 import { notifyDisabledBestEffort } from '../../dump/registry.ts';
 import { type AuthedContext, sessionIdFromContext, userFromContext } from '../../middleware/auth.ts';
 import { type CtxWithJson } from '../../middleware/zod-validator.ts';
@@ -38,14 +38,11 @@ export const listUsers = async (c: AuthedContext) => {
 export const getUserDirectory = async (c: AuthedContext) => {
   const repo = getRepo();
   const [directory, knownUpstreamIds, preferenceRows] = await Promise.all([repo.readUserDirectory(), loadKnownUpstreamIds(), repo.userPreferences.listAll()]);
-  const groupIds = new Map(directory.users.map(user => [user.id, [] as number[]]));
-  for (const group of directory.groups) {
-    for (const userId of group.memberIds) groupIds.get(userId)!.push(group.id);
-  }
   const preferencesByUser = new Map(preferenceRows.map(row => [row.userId, row.preferences]));
   return c.json({
-    users: directory.users.map(user => userToAdminWire(user, knownUpstreamIds, groupIds.get(user.id)!, preferencesByUser.get(user.id) ?? defaultUserPreferences)),
+    users: directory.users.map(user => userToDirectoryWire(user, knownUpstreamIds, preferencesByUser.get(user.id) ?? defaultUserPreferences)),
     groups: directory.groups,
+    memberships: directory.memberships,
   });
 };
 
