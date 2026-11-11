@@ -29,7 +29,9 @@ export const resolveUpstreamMetricDisplay = ({ name, labels }: UpstreamMetricIde
         ? options.quotaDisplay === 'used' ? 'dashboard.upstreamMetrics.metrics.sessionUsage' : 'dashboard.upstreamMetrics.metrics.sessionRemaining'
         : options.quotaDisplay === 'used' ? 'dashboard.upstreamMetrics.metrics.usage' : 'dashboard.upstreamMetrics.metrics.remaining',
       axisPriority: upstreamMetricAxisPriority.subscriptionQuota,
-      windowSeconds: session ? null : 604_800,
+      costScope: 'upstream',
+      // Legacy plans retain five-hour and weekly limits: https://ollama.com/blog/transparent-pricing
+      windowSeconds: session ? 18_000 : 604_800,
       emptyValue: null,
       form: 'area',
     });

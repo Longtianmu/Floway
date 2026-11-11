@@ -31,6 +31,7 @@ export const resolveUpstreamMetricDisplay = ({ name, labels }: UpstreamMetricIde
       : `dashboard.upstreamMetrics.metrics.named${options.quotaDisplay === 'used' ? 'Usage' : 'Remaining'}`,
     labelValues: limit === 'codex' ? undefined : { name: limit },
     axisPriority: upstreamMetricAxisPriority.subscriptionQuota,
+    ...(limit === 'codex' || limit === '' ? { costScope: 'upstream' as const } : {}),
     windowSeconds,
     emptyValue: null,
     form: 'area',

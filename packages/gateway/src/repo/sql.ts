@@ -77,6 +77,7 @@ import {
 import { serializeStoredConfig, serializeStoredState } from './upstream-json.ts';
 import { SqlUpstreamMetricsRepo } from './upstream-metrics-sql.ts';
 import { parseUpstreamHue, parseUpstreamKind } from './upstream-parse.ts';
+import { querySqlUsageCost } from './usage-cost-sql.ts';
 import { usageMetricRows } from './usage-metrics.ts';
 import { querySqlUsageOverview } from './usage-overview-sql.ts';
 import {
@@ -858,6 +859,10 @@ class SqlUsageRepo implements UsageRepo {
 
   queryOverview(opts: UsageOverviewQueryOptions): Promise<UsageOverviewResult> {
     return querySqlUsageOverview(this.db, opts);
+  }
+
+  queryCost(opts: Parameters<UsageRepo['queryCost']>[0]): Promise<string | null> {
+    return querySqlUsageCost(this.db, opts);
   }
 
   async listAll(): Promise<UsageRecord[]> {

@@ -58,6 +58,8 @@ export interface UpstreamMetricDisplay {
   form: 'line' | 'area';
   /** The stored value (or allowance series) that represents 100% remaining. */
   resetValue?: number | UpstreamMetricIdentity;
+  /** Every model on the upstream contributes to this quota; scoped quotas cannot value its total spend. */
+  costScope?: 'upstream';
   toDisplayValue: (storedValue: number) => number;
 }
 

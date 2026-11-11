@@ -61,6 +61,7 @@ export const resolveUpstreamMetricDisplay = ({ name, labels }: UpstreamMetricIde
       ? options.quotaDisplay === 'used' ? 'dashboard.upstreamMetrics.metrics.usage' : 'dashboard.upstreamMetrics.metrics.remaining'
       : `dashboard.upstreamMetrics.metrics.named${options.quotaDisplay === 'used' ? 'Usage' : 'Remaining'}`,
     labelValues: named === null ? undefined : { name: named },
+    ...(named === null ? { costScope: 'upstream' as const } : {}),
     axisPriority: upstreamMetricAxisPriority.subscriptionQuota,
     windowSeconds: quota === 'five_hour' ? 18_000 : 604_800,
     emptyValue: null,

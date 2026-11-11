@@ -366,6 +366,7 @@ export interface UsageRepo {
   record(record: UsageRecord): Promise<void>;
   query(opts: { keyIds?: readonly string[]; start: string; end: string }): Promise<UsageRecord[]>;
   queryOverview(opts: UsageOverviewQueryOptions): Promise<UsageOverviewResult>;
+  queryCost(opts: { upstreamId: string; start: string; end: string }): Promise<DecimalString | null>;
   listAll(): Promise<UsageRecord[]>;
   // Replacement upsert: quantities and unit prices are overwritten from the record.
   set(record: UsageRecord): Promise<void>;

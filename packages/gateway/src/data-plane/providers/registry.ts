@@ -47,6 +47,11 @@ export const resetMetricForKind = (kind: UpstreamProviderKind, identity: Upstrea
   return { name, labelKey, labelValues, windowSeconds, resetValue };
 };
 
+export const costQuotaForKind = (kind: UpstreamProviderKind, identity: UpstreamMetricIdentity) => {
+  const display = providersByKind[kind].resolveUpstreamMetricDisplay?.(identity, { quotaDisplay: 'used' });
+  return display?.unit === 'percent' && display.costScope === 'upstream' && display.resetValue !== undefined ? display : null;
+};
+
 // The upstream scope is a required argument across the catalog-assembly chain
 // (this, `enumerateAddressableModelIds`, `enumerateModelCandidates`) so a
 // caller can never omit it and silently receive the full, unscoped catalog —
