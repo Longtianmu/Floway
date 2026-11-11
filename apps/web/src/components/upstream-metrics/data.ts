@@ -23,3 +23,6 @@ export const loadUpstreamMetrics = async (upstreamId: string, range: DashboardRa
   const step = upstreamMetricsStep(start, end);
   return await callApi(() => api.api['upstream-metrics'].$get({ query: { upstream_id: upstreamId, start, end, step } }, { init: { signal } }));
 };
+
+export const loadUpstreamQuotaEstimates = (upstreamId: string, end: number, signal: AbortSignal) =>
+  callApi(() => api.api['upstream-quota-estimates'].$get({ query: { upstream_id: upstreamId, end } }, { init: { signal } }));
