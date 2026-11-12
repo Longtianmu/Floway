@@ -57,6 +57,21 @@ it('withholds full quota estimates at zero consumption and when prices are incom
   expect(body.estimates.every((estimate: { reason: string }) => estimate.reason === 'unpriced')).toBe(true);
 });
 
+it('values a premium weekly quota without inventing an absent five-hour window', async () => {
+  const { repo, headers, grant, gauge } = await fixture();
+  await grant();
+  await repo.upstreamMetrics.deleteAll();
+  const start = Date.UTC(2026, 10, 10, 8, 15);
+  await gauge(604_800, start - 60_000, 70, 'premium');
+  await gauge(604_800, start, 0, 'premium');
+  await gauge(604_800, end - 60_000, 50, 'premium');
+  const body = await (await requestApp(url, { headers })).json();
+  expect(body.estimates).toEqual([
+    { window: 'five-hour', spentUsd: null, fullQuotaUsd: null, reason: 'unsupported' },
+    { window: 'week', spentUsd: '20', fullQuotaUsd: '40', reason: null },
+  ]);
+});
+
 it('ignores obsolete quota identities instead of treating them as competing current quotas', async () => {
   const { headers, grant, gauge } = await fixture();
   await grant();

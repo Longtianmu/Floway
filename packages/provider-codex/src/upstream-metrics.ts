@@ -31,7 +31,9 @@ export const resolveUpstreamMetricDisplay = ({ name, labels }: UpstreamMetricIde
       : `dashboard.upstreamMetrics.metrics.named${options.quotaDisplay === 'used' ? 'Usage' : 'Remaining'}`,
     labelValues: limit === 'codex' ? undefined : { name: limit },
     axisPriority: upstreamMetricAxisPriority.subscriptionQuota,
-    ...(limit === 'codex' || limit === '' ? { costScope: 'upstream' as const } : {}),
+    // Default x-codex windows also arrive with the premium active-limit name.
+    // https://github.com/openai/codex/issues/23190
+    ...(limit === 'codex' || limit === '' || limit === 'premium' ? { costScope: 'upstream' as const } : {}),
     windowSeconds,
     emptyValue: null,
     form: 'area',

@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
 
+import { parseCodexQuotaHeaders } from '../src/quota.ts';
 import { codexMetrics, resolveUpstreamMetricDisplay } from '../src/upstream-metrics.ts';
 import { upstreamMetricAxisPriority } from '@floway-dev/provider/browser';
 
@@ -25,4 +26,21 @@ it('displays the direction the preference names while preserving credit balances
   const credits = resolveUpstreamMetricDisplay({ name: 'credits.balance', labels: {} }, { quotaDisplay: 'used' })!;
   expect(credits.axisPriority).toBe(upstreamMetricAxisPriority.purchasedBalance);
   expect(credits.toDisplayValue(200)).toBe(200);
+});
+
+it('retains cost eligibility for the default header window under the premium active limit', () => {
+  const snapshot = parseCodexQuotaHeaders(new Headers({
+    'x-codex-active-limit': 'premium',
+    'x-codex-primary-used-percent': '25',
+    'x-codex-primary-window-minutes': '10080',
+    'x-codex-secondary-window-minutes': '0',
+  }), { now: new Date('2026-11-12T12:00:00Z'), isRateLimited: false });
+  const metrics = codexMetrics(snapshot);
+  expect(metrics).toHaveLength(1);
+  const display = resolveUpstreamMetricDisplay(metrics[0]!, { quotaDisplay: 'used' })!;
+  expect(display).toMatchObject({ costScope: 'upstream', windowSeconds: 604_800 });
+  expect(display.toDisplayValue(metrics[0]!.value)).toBe(25);
+  for (const limit of ['codex_bengalfox', 'imagegen_premium']) {
+    expect(resolveUpstreamMetricDisplay({ ...metrics[0]!, labels: { limit, window_seconds: 604_800 } }, { quotaDisplay: 'used' })?.costScope).toBeUndefined();
+  }
 });
