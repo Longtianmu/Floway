@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 
+import { QuotaEstimates } from './quota-estimates';
 import type { ApiResult } from '../../api/client';
 import type { UpstreamRecord } from '../../api/types';
 import { useTranslation } from '../../i18n/translation';
@@ -106,5 +107,6 @@ function UpstreamTelemetryPanel({ data, record, busy, currentUserId, onQueryChan
     <TokenUsageCharts usage={data.usage} dimensions={dimensions} upstreams={upstreams} groupBy={query.groupBy} range={query.range} loadedAt={loadedAt}
       metric={metric} onMetricChange={setMetric} hidden={hidden} onHiddenChange={setHidden} title={t('dashboard.upstreamTelemetry.usage')} />
     <UpstreamMetricsChartSection key={record.id} chart={chart} start={data.metrics.start} end={Math.min(data.metrics.end, loadedAt)} />
+    {(data.metrics.records.length > 0 || Boolean(data.resetCycles?.metrics.length)) && <QuotaEstimates key={record.id} upstreamId={record.id} loadedAt={loadedAt} />}
   </div></LinkedChartHoverProvider>;
 }

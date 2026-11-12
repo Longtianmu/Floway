@@ -66,13 +66,35 @@ const metrics = (url: URL) => ({
 const stubGateway = (
   handler: (url: URL, signal: AbortSignal | undefined) => Promise<Response>,
   pageData: typeof loaderData = loaderData,
+  estimates?: () => Promise<Response>,
 ) => vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = new URL(input instanceof Request ? input.url : String(input), 'http://localhost');
   if (url.pathname === '/api/upstreams') return Response.json(pageData.upstreams);
   if (url.pathname === '/api/models') return Response.json({ data: [] });
   if (url.pathname === '/api/upstream-reset-cycles') return Response.json({ upstreamId: url.searchParams.get('upstream_id'), available: true, metrics: [] });
+  if (url.pathname === '/api/upstream-quota-estimates') return estimates ? await estimates() : Response.json({ upstreamId: url.searchParams.get('upstream_id'), available: false, estimates: [] });
   return await handler(url, init?.signal as AbortSignal | undefined);
 }));
+
+it('loads estimates independently after opening the real telemetry panel', async () => {
+  let finish!: (response: Response) => void;
+  stubGateway(async url => {
+    if (url.pathname === '/api/token-usage/overview') return Response.json(overview());
+    if (url.pathname === '/api/upstream-metrics') return Response.json(metrics(url));
+    throw new Error(`Unexpected request: ${url.pathname}`);
+  }, loaderData, () => new Promise<Response>(resolve => { finish = resolve; }));
+  renderPage();
+  fireEvent.click(await waitFor(() => metricsButton('First')));
+  expect(await screen.findByRole('heading', { name: 'Metrics' })).toBeTruthy();
+  expect(screen.getByText('Loading quota estimates')).toBeTruthy();
+  await act(async () => finish(Response.json({
+    upstreamId: 'first', available: true, estimates: [
+      { window: 'five-hour', spentUsd: '10', fullQuotaUsd: '40', reason: null },
+      { window: 'week', spentUsd: '20', fullQuotaUsd: '80', reason: null },
+    ],
+  })));
+  expect(await screen.findByText('Current 5-hour cycle · est. spent $10.00 / est. full quota $40.00')).toBeTruthy();
+});
 
 it('blocks the surface until both readings load, then opens a single row with Usage above Metrics', async () => {
   let finishUsage!: () => void;

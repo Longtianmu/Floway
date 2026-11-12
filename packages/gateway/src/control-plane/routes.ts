@@ -17,6 +17,7 @@ import { webSearchUsage } from './search-usage/routes.ts';
 import { getSiteSettings, putSiteSettings } from './site-settings/routes.ts';
 import { tokenUsageOverview } from './token-usage/overview.ts';
 import { tokenUsage } from './token-usage/routes.ts';
+import { upstreamQuotaEstimates } from './upstream-metrics/quota-estimates.ts';
 import { upstreamMetrics, upstreamResetCycles } from './upstream-metrics/routes.ts';
 import { claudeCodeOAuthAuthorizeUrl, claudeCodeOAuthExchange, claudeCodeOAuthRefresh, claudeCodeProbe, claudeCodeSetupTokenAuthorizeUrl, claudeCodeSetupTokenExchange } from './upstreams/claude-code.ts';
 import { codexImportExchange, codexImportPreview, codexOAuthAuthorizeUrl, codexOAuthRefresh, codexRateLimitResetConsume, codexRateLimitResetCredits } from './upstreams/codex.ts';
@@ -63,6 +64,7 @@ export const controlPlaneRoutes = new Hono<{ Variables: AuthVars }>()
   .get('/api/performance/overview', zValidator('query', performanceQuery), performanceOverview)
   .get('/api/upstream-metrics', zValidator('query', upstreamMetricsQuery), upstreamMetrics)
   .get('/api/upstream-reset-cycles', zValidator('query', upstreamResetCyclesQuery), upstreamResetCycles)
+  .get('/api/upstream-quota-estimates', zValidator('query', upstreamResetCyclesQuery), upstreamQuotaEstimates)
   .get('/api/models', zValidator('query', modelsQuery), controlPlaneModels)
   .get('/api/upstreams', listUpstreams)
   .get('/api/upstreams/blueprint', adminOnlyMiddleware, getUpstreamBlueprint)

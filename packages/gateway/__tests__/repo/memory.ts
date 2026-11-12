@@ -89,6 +89,7 @@ import type {
   UsersRepo,
 } from '../../src/repo/types.ts';
 import { serializeStoredConfig, serializeStoredState } from '../../src/repo/upstream-json.ts';
+import { sumUsageCostTerms } from '../../src/repo/usage-cost-sql.ts';
 import { usageMetricRows } from '../../src/repo/usage-metrics.ts';
 import { bucketForTtftMs, bucketForTpotUs } from '../../src/shared/performance-histogram.ts';
 import { assertWebSearchProviderName, type WebSearchConfig } from '../../src/shared/web-search-providers.ts';
@@ -717,6 +718,12 @@ class MemoryUsageRepo implements UsageRepo {
         .map(r => this.toRecord(r))
         .sort((a, b) => a.hour.localeCompare(b.hour)),
     );
+  }
+
+  queryCost(opts: Parameters<UsageRepo['queryCost']>[0]): Promise<string | null> {
+    const records = [...this.store.values()].filter(record => record.upstream === opts.upstreamId && record.hour >= opts.start && record.hour < opts.end);
+    if (records.some(record => record.requests > 0 && record.metrics.size === 0)) return Promise.resolve(null);
+    return Promise.resolve(sumUsageCostTerms(records.flatMap(record => [...record.metrics.values()].map(row => ({ ...row, occurrences: 1 })))));
   }
 
   async queryOverview(opts: UsageOverviewQueryOptions): Promise<UsageOverviewResult> {
