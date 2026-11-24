@@ -23,28 +23,36 @@ const naturalPeriod = (kind: 'day' | 'week' | 'month', now: number) => {
 
 export const currentQuota = async <T extends QuotaRecord>(repo: Repo, quota: T, now: number) => {
   const { reset } = quota;
-  let startsAt = quota.startsAt;
+  let alignedStart: number | undefined;
+  let observedCycleStart = quota.observedCycleStart;
   let renewsAt: number | null = null;
   let resetAvailable = true;
   if (reset.kind === 'upstream') {
     const upstream = await repo.upstreams.getById(reset.upstreamId);
     const display = upstream === null ? null : quotaResetDisplay(upstream.kind, reset.metric);
     resetAvailable = display !== null && upstream?.enabled === true;
-    if (display !== null && startsAt < now) {
-      startsAt = await repo.upstreamMetrics.latestReset(reset.upstreamId, reset.metric, display.resetThreshold, startsAt, now) ?? startsAt;
+    if (display !== null && (observedCycleStart ?? -1) < now) {
+      observedCycleStart = await repo.upstreamMetrics.latestReset(
+        reset.upstreamId, reset.metric, display.resetThreshold, observedCycleStart ?? -1, now,
+      ) ?? observedCycleStart;
     }
+    alignedStart = observedCycleStart;
   } else if (reset.kind !== 'manual') {
     const period = naturalPeriod(reset.kind, now);
-    startsAt = Math.max(startsAt, period.startsAt);
+    alignedStart = period.startsAt;
     renewsAt = period.renewsAt;
   }
+  const usage = alignedStart === undefined
+    ? { spentUsd: quota.spentUsd, unpriced: quota.unpriced, partialHistory: false }
+    : await repo.usage.queryQuotaUsage({ userId: quota.userId, upstreamId: quota.upstreamId, start: alignedStart, through: now });
   return {
     ...quota,
-    startsAt,
+    ...usage,
+    startsAt: alignedStart ?? quota.startsAt,
+    observedCycleStart,
     renewsAt,
     resetAvailable,
-    spentUsd: startsAt === quota.startsAt ? quota.spentUsd : '0',
-    unpriced: startsAt === quota.startsAt && quota.unpriced,
+    waitingForReset: reset.kind === 'upstream' && observedCycleStart === undefined,
   };
 };
 
@@ -54,7 +62,8 @@ export const readQuotaPeriod = async (repo: Repo, initial: QuotaRevision, now: n
   let quota: QuotaRevision | null = initial;
   for (let attempt = 0; attempt < 100 && quota !== null; attempt++) {
     const current = await currentQuota(repo, quota, now);
-    if (current.startsAt === quota.startsAt || await repo.userQuotas.replaceIfCurrent([current])) return current;
+    if (current.observedCycleStart === quota.observedCycleStart
+      || await repo.userQuotas.replaceIfCurrent([{ ...quota, observedCycleStart: current.observedCycleStart }])) return current;
     quota = await repo.userQuotas.get(quota.id);
   }
   if (quota === null) return null;

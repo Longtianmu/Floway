@@ -8,7 +8,7 @@ import { parseDisabledPublicModelIdsWire } from '../../repo/disabled-public-mode
 import { isOpenAIResponsesRetentionSeconds, OPENAI_RESPONSES_RETENTION_MAX_SECONDS, OPENAI_RESPONSES_RETENTION_MIN_SECONDS } from '../../repo/openai-responses-retention.ts';
 import { isDirectFallbackId, normalizeProxyFallbackList } from '../../repo/proxy-fallback-list.ts';
 import { SEED_ADMIN_USER_ID } from '../../repo/seed-admin.ts';
-import type { ApiKey, Group, SiteSettings, UpstreamMetricRecord, PerformanceMetric, PerformanceTelemetryRecord, UsageRecord, User, WebSearchUsageRecord } from '../../repo/types.ts';
+import type { ApiKey, Group, SiteSettings, UpstreamMetricRecord, PerformanceMetric, PerformanceTelemetryRecord, UsageRecord, UsageSettlement, User, WebSearchUsageRecord } from '../../repo/types.ts';
 import { PASSWORD_HASH_SCHEME } from '../../shared/passwords.ts';
 import { RETENTION_MAX_SECONDS } from '../../shared/retention.ts';
 import { parseServerSecret } from '../../shared/server-secret.ts';
@@ -45,6 +45,7 @@ export interface ParsedImportData {
   upstreams: UpstreamRecord[];
   proxies: SerializedProxy[];
   usage: UsageRecord[];
+  usageSettlements: UsageSettlement[];
   searchUsage: WebSearchUsageRecord[];
   upstreamMetrics: UpstreamMetricRecord[];
   performance: PerformanceTelemetryRecord[];
@@ -496,6 +497,15 @@ const siteSettingsSchema = z.object({
   siteName: z.string().max(64).nullable().transform(value => value == null || value.trim() === '' ? null : value.trim()),
 }).strict();
 
+const usageSettlementSchema = z.object({
+  id: quotaRecordSchema.shape.id,
+  keyId: z.string().min(1),
+  upstream: z.string().min(1).nullable(),
+  timestamp: z.number().int().nonnegative(),
+  spentUsd: quotaRecordSchema.shape.spentUsd,
+  unpriced: z.boolean(),
+});
+
 export const parseImportData = (value: unknown): ImportDataParseResult => {
   if (!isRecord(value)) return { type: 'invalid', error: 'data is required' };
 
@@ -585,6 +595,13 @@ export const parseImportData = (value: unknown): ImportDataParseResult => {
 
   const usage = parseCollection('usage', usageSchema, value.usage, { arrayError: 'usage must be an array' });
   if (usage.type === 'invalid') return usage;
+  const settlements = parseCollection('usageSettlements', usageSettlementSchema, value.usageSettlements, {
+    arrayError: 'usageSettlements must be an array', optional: true,
+  });
+  if (settlements.type === 'invalid') return settlements;
+  if (new Set(settlements.records.map(record => record.id)).size !== settlements.records.length) {
+    return { type: 'invalid', error: 'invalid usageSettlements: duplicate settlement id' };
+  }
   const upstreams = parseCollection('upstreams', upstreamWireSchema, value.upstreams, { arrayError: 'upstreams must be an array' });
   if (upstreams.type === 'invalid') return upstreams;
   const upstreamIds = new Map<string, number>();
@@ -652,6 +669,7 @@ export const parseImportData = (value: unknown): ImportDataParseResult => {
       upstreams: upstreams.records,
       proxies: proxies.records,
       usage: usage.records,
+      usageSettlements: settlements.records,
       searchUsage: searchUsage.records,
       upstreamMetrics: upstreamMetrics.records,
       performance,

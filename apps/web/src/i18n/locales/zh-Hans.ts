@@ -2034,6 +2034,9 @@ const zhHansCN = {
     quotas: {
       title: '配额',
       empty: '暂无配额',
+      group: {
+        rules_other: '{{count, number}} 条配额',
+      },
       actions: {
         add: '添加配额',
         refresh: '刷新配额',
@@ -2068,8 +2071,10 @@ const zhHansCN = {
         started: '开始于 {{time}}',
         renews: '重置于 {{time}}',
         unavailable: '重置来源上游不可用',
+        waiting: '尚未观测到上游重置',
         noMetrics: '尚未观测到可用的重置指标',
-        changed: '更改重置周期会开始一个新周期。',
+        changed: '用量将同步到所选周期。',
+        changedManual: '改为手动重置后，用量将从零开始。',
       },
       enforcement: {
         toggle: '达到上限后拦截新请求',
@@ -2080,6 +2085,7 @@ const zhHansCN = {
         label: '配额用量',
         cost: '{{spent}} / {{limit}}',
         unpriced: '部分用量未计价',
+        partialHistory: '周期首小时的部分历史用量无法归入本周期',
         overLimit: '>100%',
       },
       dialog: {

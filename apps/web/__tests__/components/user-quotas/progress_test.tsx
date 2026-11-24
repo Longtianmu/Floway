@@ -17,6 +17,8 @@ const quota: Quota = {
   startsAt: 0,
   renewsAt: null,
   resetAvailable: true,
+  waitingForReset: false,
+  partialHistory: false,
   enforce: false,
   limitUsd: '2',
   spentUsd: '2.5',

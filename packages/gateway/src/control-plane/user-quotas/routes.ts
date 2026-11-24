@@ -28,7 +28,7 @@ export const listUserQuotas = async (c: AuthedContext) => {
   const quotas = await Promise.all(records.filter(record => usersById.has(record.userId)).map(async record => {
     const current = await readQuotaPeriod(repo, record, now);
     if (current === null) return null;
-    const { revision: _revision, ...quota } = current;
+    const { revision: _revision, observedCycleStart: _observedCycleStart, ...quota } = current;
     const source = quota.reset.kind === 'upstream' ? upstreamsById.get(quota.reset.upstreamId) : undefined;
     const display = source && quota.reset.kind === 'upstream' ? resetDisplay(source.kind, quota.reset.metric) : null;
     return {
@@ -70,7 +70,7 @@ const validateReset = async (repo: Repo, reset: QuotaReset): Promise<boolean> =>
   return upstream !== null && quotaResetDisplay(upstream.kind, reset.metric) !== null;
 };
 
-const clearUsage = (now: number) => ({ startsAt: now, spentUsd: '0', unpriced: false });
+const clearUsage = (now: number) => ({ startsAt: now, observedCycleStart: undefined, spentUsd: '0', unpriced: false });
 
 export const createUserQuota = async (c: CtxWithJson<typeof createQuotaSchema>) => {
   const repo = getRepo();

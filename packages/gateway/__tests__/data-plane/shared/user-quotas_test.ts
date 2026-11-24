@@ -1,5 +1,7 @@
 import { expect, it } from 'vitest';
 
+import { usageHourAt } from '../../../src/repo/quota-usage.ts';
+import { readQuotaPeriod } from '../../../src/user-quotas/period.ts';
 import type { QuotaRecord } from '../../../src/user-quotas/schema.ts';
 import { saveUpstreamForTest } from '../../repo/upstreams.ts';
 import { buildCustomUpstreamRecord, requestApp, requestAppWithWarmModels, setupAppTest } from '../../test-utils/app.ts';
@@ -21,8 +23,12 @@ it('charges equivalent pricing across API keys, skips an exhausted upstream, and
     id: crypto.randomUUID(), userId: apiKey.userId, upstreamId: scope, limitUsd, enforce, reset: { kind: 'manual' },
     startsAt: Date.now(), spentUsd: '0', unpriced: false,
   });
-  const primary = quota('primary', '0.4', true);
+  const primary: QuotaRecord = { ...quota('primary', '0.4', true), reset: { kind: 'day' } };
   const total = quota(null, '0.7', false);
+  await repo.usage.set({
+    keyId: secondKey.id, upstream: 'primary', model, modelKey: model, hour: usageHourAt(Date.now()),
+    requests: 1, pricingSelector: {}, metrics: [{ metric: 'input_tokens', quantity: '2', unitPrice: '0.1' }],
+  });
   await repo.userQuotas.insert(primary);
   await repo.userQuotas.insert(total);
   const calls: string[] = [];
@@ -45,7 +51,8 @@ it('charges equivalent pricing across API keys, skips an exhausted upstream, and
     throw new Error(`Unexpected upstream request: ${upstream.url}`);
   }, async () => {
     expect((await request(apiKey.key, true)).status).toBe(200);
-    expect(await repo.userQuotas.get(primary.id)).toMatchObject({ spentUsd: '0.5' });
+    const current = await readQuotaPeriod(repo, (await repo.userQuotas.get(primary.id))!, Date.now());
+    expect(current).toMatchObject({ spentUsd: '0.7' });
     expect((await request(secondKey.key)).status).toBe(200);
     expect((await request(apiKey.key)).status).toBe(200);
     expect(calls).toEqual(['primary.example.com', 'fallback.example.com', 'fallback.example.com']);

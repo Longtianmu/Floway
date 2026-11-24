@@ -2055,6 +2055,10 @@ const en = {
     quotas: {
       title: 'Quotas',
       empty: 'No quotas',
+      group: {
+        rules_one: '{{count, number}} quota',
+        rules_other: '{{count, number}} quotas',
+      },
       actions: {
         add: 'Add quota',
         refresh: 'Refresh quotas',
@@ -2089,8 +2093,10 @@ const en = {
         started: 'Started {{time}}',
         renews: 'Resets {{time}}',
         unavailable: 'Reset upstream unavailable',
+        waiting: 'No upstream reset observed yet',
         noMetrics: 'No observed reset metrics',
-        changed: 'Changing the reset cycle starts a new period.',
+        changed: 'Usage will sync to the selected cycle.',
+        changedManual: 'Switching to manual reset starts from zero.',
       },
       enforcement: {
         toggle: 'Block requests when the limit is reached',
@@ -2101,6 +2107,7 @@ const en = {
         label: 'Quota used',
         cost: '{{spent}} / {{limit}}',
         unpriced: 'Some usage has no pricing',
+        partialHistory: 'Some historical usage in the first hour could not be attributed to this period',
         overLimit: '>100%',
       },
       dialog: {

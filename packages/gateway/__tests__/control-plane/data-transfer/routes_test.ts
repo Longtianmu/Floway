@@ -798,9 +798,14 @@ test('a full v25 export re-imports verbatim — the export→import round trip i
   await repo.apiKeys.save({ ...KEY_B, userId: USER_BOB.id });
   const quota = {
     id: crypto.randomUUID(), userId: USER_BOB.id, upstreamId: 'up_chatgpt_a', limitUsd: '2', enforce: false,
-    reset: { kind: 'manual' as const }, startsAt: 1_000, spentUsd: '2.75', unpriced: true,
+    reset: { kind: 'upstream' as const, upstreamId: 'up_chatgpt_a', metric: { name: 'quota.window.used_percent', labels: { window_seconds: 18_000 } } },
+    observedCycleStart: 900, startsAt: 1_000, spentUsd: '2.75', unpriced: true,
+  };
+  const settlement = {
+    id: crypto.randomUUID(), keyId: KEY_B.id, upstream: 'up_chatgpt_a', timestamp: 1_100, spentUsd: '0.25', unpriced: false,
   };
   assertEquals(await repo.userQuotas.insert(quota), true);
+  await repo.usage.setSettlement(settlement);
   await saveUpstreamForTest(repo.upstreams, COPILOT_UPSTREAM);
   await saveUpstreamForTest(repo.upstreams, CUSTOM_UPSTREAM);
   await saveUpstreamForTest(repo.upstreams, AZURE_UPSTREAM);
@@ -823,6 +828,7 @@ test('a full v25 export re-imports verbatim — the export→import round trip i
   const exported = await doExport(app, true);
   assertEquals(exported.version, 25);
   assertEquals(exported.data.userQuotas, [quota]);
+  assertEquals(exported.data.usageSettlements, [settlement]);
 
   // Replace-import the export's own `data`, verbatim. If the export emits any
   // shape the import parser rejects, this 400s — the round trip is the
@@ -836,6 +842,7 @@ test('a full v25 export re-imports verbatim — the export→import round trip i
   if (restoredQuota === null) throw new Error('restored quota missing');
   const { revision: _revision, ...quotaValue } = restoredQuota;
   assertEquals(quotaValue, quota);
+  assertEquals(await repo.usage.listSettlements(), [settlement]);
   assertEquals((await repo.upstreams.list()).find(u => u.id === 'up_chatgpt_a')?.state, CHATGPT_UPSTREAM.state);
   assertEquals((await repo.users.listIncludingDeleted()).find(u => u.id === USER_BOB.id), USER_BOB);
   assertEquals((await repo.apiKeys.findByRawKey(KEY_B.key))?.userId, USER_BOB.id);

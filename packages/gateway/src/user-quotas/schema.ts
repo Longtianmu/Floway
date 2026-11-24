@@ -30,6 +30,7 @@ export const createQuotaSchema = quotaPolicySchema.extend({ userId, upstreamId: 
 export const quotaRecordSchema = createQuotaSchema.extend({
   id: quotaIdSchema,
   startsAt: z.number().int().nonnegative(),
+  observedCycleStart: z.number().int().nonnegative().optional(),
   spentUsd: z.string().max(2048).regex(/^(?:0|[1-9]\d*)(?:\.\d*[1-9])?$/),
   unpriced: z.boolean(),
 });

@@ -3,15 +3,16 @@ import { quotaRecordSchema, type QuotaRecord } from '../user-quotas/schema.ts';
 import type { SqlBindValue, SqlDatabase } from '@floway-dev/platform';
 
 const columns = `id, user_id AS userId, upstream_id AS upstreamId, limit_usd AS limitUsd, enforce,
-  reset_json AS resetJson, starts_at AS startsAt, spent_usd AS spentUsd, unpriced, revision`;
-type QuotaRow = Omit<QuotaRevision, 'enforce' | 'reset' | 'unpriced'> & {
+  reset_json AS resetJson, starts_at AS startsAt, observed_cycle_start AS observedCycleStart, spent_usd AS spentUsd, unpriced, revision`;
+type QuotaRow = Omit<QuotaRevision, 'enforce' | 'reset' | 'unpriced' | 'observedCycleStart'> & {
   enforce: number;
+  observedCycleStart: number | null;
   resetJson: string;
   unpriced: number;
 };
 
-const decode = ({ resetJson, revision, enforce, unpriced, ...row }: QuotaRow): QuotaRevision => ({
-  ...quotaRecordSchema.parse({ ...row, reset: JSON.parse(resetJson), enforce: enforce === 1, unpriced: unpriced === 1 }),
+const decode = ({ resetJson, revision, enforce, unpriced, observedCycleStart, ...row }: QuotaRow): QuotaRevision => ({
+  ...quotaRecordSchema.parse({ ...row, reset: JSON.parse(resetJson), enforce: enforce === 1, unpriced: unpriced === 1, observedCycleStart: observedCycleStart ?? undefined }),
   revision,
 });
 
@@ -44,12 +45,12 @@ export class SqlUserQuotasRepo implements UserQuotasRepo {
 
   async insert(record: QuotaRecord): Promise<boolean> {
     const row = await this.db.prepare(`
-      INSERT INTO user_quotas (id, user_id, upstream_id, limit_usd, enforce, reset_json, starts_at, spent_usd, unpriced, revision)
-      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      INSERT INTO user_quotas (id, user_id, upstream_id, limit_usd, enforce, reset_json, starts_at, observed_cycle_start, spent_usd, unpriced, revision)
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
       WHERE EXISTS (SELECT 1 FROM users WHERE id = ? AND deleted_at IS NULL)
       ON CONFLICT DO NOTHING RETURNING id
     `).bind(record.id, record.userId, record.upstreamId, record.limitUsd, +record.enforce, JSON.stringify(record.reset),
-      record.startsAt, record.spentUsd, +record.unpriced, crypto.randomUUID(), record.userId).first<{ id: string }>();
+      record.startsAt, record.observedCycleStart ?? null, record.spentUsd, +record.unpriced, crypto.randomUUID(), record.userId).first<{ id: string }>();
     return row !== null;
   }
 
@@ -63,6 +64,7 @@ export class SqlUserQuotasRepo implements UserQuotasRepo {
       enforce: +record.enforce,
       reset: JSON.stringify(record.reset),
       startsAt: record.startsAt,
+      observedCycleStart: record.observedCycleStart ?? null,
       spentUsd: record.spentUsd,
       unpriced: +record.unpriced,
     }));
@@ -71,6 +73,7 @@ export class SqlUserQuotasRepo implements UserQuotasRepo {
       WITH updates AS MATERIALIZED (
         SELECT value->>'id' AS id, value->>'revision' AS revision, value->>'limitUsd' AS limit_usd,
           value->>'enforce' AS enforce, value->>'reset' AS reset_json, value->>'startsAt' AS starts_at,
+          value->>'observedCycleStart' AS observed_cycle_start,
           value->>'spentUsd' AS spent_usd, value->>'unpriced' AS unpriced
         FROM json_each(?)
       ), valid AS MATERIALIZED (
@@ -79,7 +82,8 @@ export class SqlUserQuotasRepo implements UserQuotasRepo {
       )
       UPDATE user_quotas AS quota
       SET limit_usd = updates.limit_usd, enforce = updates.enforce, reset_json = updates.reset_json,
-          starts_at = updates.starts_at, spent_usd = updates.spent_usd, unpriced = updates.unpriced, revision = ?
+          starts_at = updates.starts_at, observed_cycle_start = updates.observed_cycle_start,
+          spent_usd = updates.spent_usd, unpriced = updates.unpriced, revision = ?
       FROM updates
       WHERE quota.id = updates.id AND (SELECT matches FROM valid)
       RETURNING id

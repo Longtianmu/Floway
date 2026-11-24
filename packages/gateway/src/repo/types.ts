@@ -121,6 +121,25 @@ export interface UsageMetricRecord {
   unitPrice: DecimalString | null;
 }
 
+export interface UsageCharge {
+  spentUsd: DecimalString;
+  unpriced: boolean;
+}
+
+export interface UsageSettlement extends UsageCharge {
+  id: string;
+  keyId: string;
+  upstream: string | null;
+  timestamp: number;
+}
+
+export interface QuotaUsageWindow {
+  userId: number;
+  upstreamId: string | null;
+  start: number;
+  through: number;
+}
+
 export type UsageQuantities = Partial<Record<BillingMetric, DecimalString>>;
 
 // Disjoint protocol-level token counts. Absent keys mean zero for that
@@ -365,12 +384,15 @@ export interface UsageRepo {
   // pricingSelector, metric) conflict, quantities are summed exactly. The
   // first write establishes the unit-price snapshot, including an unpriced
   // snapshot; later writes that share the row keep it unchanged.
-  record(record: UsageRecord): Promise<void>;
+  record(record: UsageRecord, settlement?: UsageSettlement): Promise<void>;
   query(opts: { keyIds?: readonly string[]; start: string; end: string }): Promise<UsageRecord[]>;
+  queryQuotaUsage(window: QuotaUsageWindow): Promise<UsageCharge & { partialHistory: boolean }>;
   // Null if any recorded consumption in these UTC hours is missing its cost.
   queryUpstreamCost(upstreamId: string, start: string, end: string): Promise<DecimalString | null>;
   queryOverview(opts: UsageOverviewQueryOptions): Promise<UsageOverviewResult[]>;
   listAll(): Promise<UsageRecord[]>;
+  listSettlements(): Promise<UsageSettlement[]>;
+  setSettlement(settlement: UsageSettlement): Promise<void>;
   // Replacement upsert: quantities and unit prices are overwritten from the record.
   set(record: UsageRecord): Promise<void>;
   deleteAll(): Promise<void>;

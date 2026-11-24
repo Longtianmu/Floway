@@ -1,8 +1,8 @@
-import { currentHour } from './hour.ts';
 import { getRepo } from '../../../repo/index.ts';
+import { usageHourAt } from '../../../repo/quota-usage.ts';
 import type { TokenUsage, UsageQuantities } from '../../../repo/types.ts';
 import { tokenUsageQuantities, usageMetrics } from '../../../repo/usage-metrics.ts';
-import { chargeUserQuota } from '../../../user-quotas/accounting.ts';
+import { chargeUserQuota, quotaChargeForMetrics } from '../../../user-quotas/accounting.ts';
 import type { GatewayCtx } from '../gateway-ctx.ts';
 import { priceRequest, type BillableUsage, type PricingRuntimeFacts } from '@floway-dev/protocols/common';
 import type { TelemetryModelIdentity } from '@floway-dev/provider';
@@ -255,25 +255,29 @@ export const recordUsage = async (
   const priced = priceRequest(modelIdentity.pricing, pricingFacts);
   const metrics = usageMetrics(quantities, priced.rates);
   const repo = getRepo();
+  const timestamp = Date.now();
+  const measurement = quotaChargeForMetrics(metrics);
+  const settlement = { ...measurement, id: crypto.randomUUID(), keyId: apiKeyId, upstream: modelIdentity.upstream, timestamp };
+  const usage = repo.usage.record({
+    keyId: apiKeyId,
+    model: modelIdentity.model,
+    upstream: modelIdentity.upstream,
+    modelKey: modelIdentity.modelKey,
+    hour: usageHourAt(timestamp),
+    pricingSelector: priced.selector,
+    requests: 1,
+    metrics,
+  }, settlement).catch(error => console.error('Floway: failed to record usage telemetry', error));
   const telemetry = Promise.all([
-    repo.usage.record({
-      keyId: apiKeyId,
-      model: modelIdentity.model,
-      upstream: modelIdentity.upstream,
-      modelKey: modelIdentity.modelKey,
-      hour: currentHour(),
-      pricingSelector: priced.selector,
-      requests: 1,
-      metrics,
-    }),
-    repo.apiKeys.update(apiKeyId, { lastUsedAt: new Date().toISOString() }),
-  ]).catch(error => console.error('Floway: failed to record usage telemetry', error));
-  const charge = chargeUserQuota(repo, user.id, modelIdentity.upstream, metrics).catch(error => {
+    usage,
+    repo.apiKeys.update(apiKeyId, { lastUsedAt: new Date(timestamp).toISOString() }),
+  ]).catch(error => console.error('Floway: failed to update the last-used API key timestamp', error));
+  const charge = chargeUserQuota(repo, user.id, modelIdentity.upstream, measurement).catch(error => {
     console.error('Floway: failed to settle user quota', error);
   });
   // Retain settlement even when the client closes a stream before its EOF.
   backgroundScheduler(Promise.all([telemetry, charge]));
-  await charge;
+  if (await charge) await usage;
 };
 
 export const recordTokenUsage = async (subject: UsageSubject, modelIdentity: TelemetryModelIdentity, usage: TokenUsage | null): Promise<void> => {

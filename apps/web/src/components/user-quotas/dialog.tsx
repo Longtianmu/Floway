@@ -168,7 +168,7 @@ export function QuotaDialog({ quota, options, open, onClose, onSaved }: {
         <Button onClick={() => { setMetricsResponse(null); setRetry(value => value + 1); }}>{t('quotas.actions.retry')}</Button>
       </div>}
     </>}
-    {quota && !sameReset && <Text size={200} className="text-fui-fg2">{t('quotas.period.changed')}</Text>}
+    {quota && !sameReset && <Text size={200} className="text-fui-fg2">{t(draft.reset === 'manual' ? 'quotas.period.changedManual' : 'quotas.period.changed')}</Text>}
     <Switch checked={draft.enforce} disabled={saving} label={t('quotas.enforcement.toggle')} onChange={(_, data) => set('enforce', data.checked)} />
   </DialogShell></>;
 }

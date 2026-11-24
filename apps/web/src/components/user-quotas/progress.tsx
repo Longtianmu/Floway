@@ -53,5 +53,6 @@ export function QuotaProgress({ quota }: { quota: Quota }) {
       value={Math.min(100, ratio * 100)}
     />
     {quota.unpriced && <Text size={200} className="text-fui-fg2">{t('quotas.progress.unpriced')}</Text>}
+    {quota.partialHistory && <Text size={200} className="text-fui-fg2">{t('quotas.progress.partialHistory')}</Text>}
   </div>;
 }

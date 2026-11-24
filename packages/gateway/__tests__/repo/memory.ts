@@ -27,6 +27,7 @@ import {
 } from '../../src/repo/openai-responses-clone.ts';
 import { quantizeOpenAIResponsesRefreshedAt, OPENAI_RESPONSES_REFRESH_GRANULARITY_MS, openaiResponsesStateCutoff } from '../../src/repo/openai-responses-retention.ts';
 import { normalizeProxyFallbackList } from '../../src/repo/proxy-fallback-list.ts';
+import { addUsageCharges, assertSettlementForUsage, quotaUsageBounds, usageChargeForTerms } from '../../src/repo/quota-usage.ts';
 import { SEED_ADMIN_USER_ID } from '../../src/repo/seed-admin.ts';
 import { generateSessionToken } from '../../src/repo/session-tokens.ts';
 import type {
@@ -61,6 +62,7 @@ import type {
   ProxyBackoffRepo,
   ProxyRecord,
   ProxyRepo,
+  QuotaUsageWindow,
   Repo,
   OpenAIResponsesItemsRepo,
   OpenAIResponsesSnapshotsRepo,
@@ -83,6 +85,7 @@ import type {
   UsageOverviewRecord,
   UsageOverviewResult,
   UsageRepo,
+  UsageSettlement,
   User,
   UserDirectory,
   GroupMembership,
@@ -668,6 +671,7 @@ const aggregateMemoryOverview = (
 
 class MemoryUsageRepo implements UsageRepo {
   private store = new Map<string, UsageBucketState>();
+  private settlements = new Map<string, UsageSettlement>();
 
   constructor(private readonly apiKeys: ApiKeyRepo) {}
 
@@ -690,7 +694,11 @@ class MemoryUsageRepo implements UsageRepo {
     return state;
   }
 
-  record(record: UsageRecord): Promise<void> {
+  record(record: UsageRecord, settlement?: UsageSettlement): Promise<void> {
+    if (settlement !== undefined) {
+      assertSettlementForUsage(record, settlement);
+      this.settlements.set(settlement.id, { ...settlement });
+    }
     const state = this.bucket(record);
     state.requests += record.requests;
     for (const row of usageMetricRows(record)) {
@@ -720,6 +728,23 @@ class MemoryUsageRepo implements UsageRepo {
     if (buckets.some(record => record.requests > 0 && record.metrics.size === 0)) return Promise.resolve(null);
     return Promise.resolve(sumUsageCostTerms(buckets.flatMap(bucket =>
       [...bucket.metrics.values()].map(row => ({ ...row, occurrences: 1 })))));
+  }
+
+  async queryQuotaUsage(window: QuotaUsageWindow) {
+    const { boundary, firstFullHour, endHour } = quotaUsageBounds(window);
+    const keys = new Set((await this.apiKeys.listByUserIdIncludingDeleted(window.userId)).map(key => key.id));
+    const inScope = (record: { keyId: string; upstream: string | null }) =>
+      keys.has(record.keyId) && (window.upstreamId === null || record.upstream === window.upstreamId);
+    const buckets = [...this.store.values()].map(state => this.toRecord(state)).filter(inScope);
+    const hourly = usageChargeForTerms(buckets.filter(row => row.hour >= firstFullHour && row.hour < endHour)
+      .flatMap(bucket => bucket.metrics.map(metric => ({ ...metric, occurrences: 1 }))));
+    if (boundary === null) return { ...hourly, partialHistory: false };
+    const timed = [...this.settlements.values()].filter(record => inScope(record) && record.timestamp >= boundary.from && record.timestamp < boundary.end);
+    const allRequests = buckets.filter(bucket => bucket.hour === boundary.hour).reduce((count, bucket) => count + bucket.requests, 0);
+    return {
+      ...timed.filter(record => record.timestamp >= window.start && record.timestamp <= window.through).reduce(addUsageCharges, hourly),
+      partialHistory: allRequests > timed.length,
+    };
   }
 
   async queryOverview(opts: UsageOverviewQueryOptions): Promise<UsageOverviewResult[]> {
@@ -784,6 +809,15 @@ class MemoryUsageRepo implements UsageRepo {
     return Promise.resolve([...this.store.values()].map(r => this.toRecord(r)).sort((a, b) => a.hour.localeCompare(b.hour)));
   }
 
+  listSettlements(): Promise<UsageSettlement[]> {
+    return Promise.resolve([...this.settlements.values()].map(row => ({ ...row })).sort((a, b) => a.timestamp - b.timestamp || a.id.localeCompare(b.id)));
+  }
+
+  setSettlement(settlement: UsageSettlement): Promise<void> {
+    this.settlements.set(settlement.id, { ...settlement });
+    return Promise.resolve();
+  }
+
   set(record: UsageRecord): Promise<void> {
     const pricingSelector = canonicalizePricingSelector(record.pricingSelector);
     const k = this.key({ ...record, pricingSelector });
@@ -806,6 +840,7 @@ class MemoryUsageRepo implements UsageRepo {
 
   deleteAll(): Promise<void> {
     this.store.clear();
+    this.settlements.clear();
     return Promise.resolve();
   }
 }

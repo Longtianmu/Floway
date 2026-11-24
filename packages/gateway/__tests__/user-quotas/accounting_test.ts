@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { usageHourAt } from '../../src/repo/quota-usage.ts';
 import { SqlRepo } from '../../src/repo/sql.ts';
-import type { UsageMetricRecord } from '../../src/repo/types.ts';
-import { chargeUserQuota, hasQuotaCapacity, quotaProgress } from '../../src/user-quotas/accounting.ts';
-import { currentQuota } from '../../src/user-quotas/period.ts';
+import type { Repo } from '../../src/repo/types.ts';
+import { chargeUserQuota, hasQuotaCapacity, quotaChargeForMetrics, quotaProgress } from '../../src/user-quotas/accounting.ts';
+import { currentQuota, readQuotaPeriod } from '../../src/user-quotas/period.ts';
 import type { QuotaRecord } from '../../src/user-quotas/schema.ts';
 import { createSqliteTestDb } from '../repo/test-sqlite.ts';
 import { saveUpstreamForTest } from '../repo/upstreams.ts';
@@ -22,8 +23,21 @@ const makeQuota = (overrides: Partial<QuotaRecord> = {}): QuotaRecord => ({
   ...overrides,
 });
 
-const charge = (quantity: string, unitPrice: string | null): UsageMetricRecord =>
-  ({ metric: 'input_tokens', quantity, unitPrice });
+const seedKey = async (repo: Repo) => {
+  await repo.apiKeys.save({
+    id: 'key-1', name: 'Test key', key: 'test-raw', userId: 1, serverSecret: '00'.repeat(32),
+    createdAt: new Date(0).toISOString(), upstreamIds: null, randomizeUpstreams: false, deletedAt: null,
+    dumpRetentionSeconds: null, openaiResponsesRetentionSeconds: 0,
+  });
+};
+
+const recordSpend = async (repo: Repo, upstream: string, timestamp: number, spentUsd: string, precise = true) => {
+  const keyId = 'key-1';
+  const metrics = [{ metric: 'input_tokens' as const, quantity: spentUsd, unitPrice: '1' }];
+  await repo.usage.record({
+    keyId, upstream, model: 'model', modelKey: 'model', hour: usageHourAt(timestamp), requests: 1, pricingSelector: {}, metrics,
+  }, precise ? { id: crypto.randomUUID(), keyId, upstream, timestamp, spentUsd, unpriced: false } : undefined);
+};
 
 afterEach(() => vi.useRealTimers());
 
@@ -38,15 +52,15 @@ describe('user quota accounting', () => {
     expect(await first.userQuotas.insert(upstream)).toBe(true);
     expect(await first.userQuotas.insert(makeQuota())).toBe(false);
     await Promise.all(Array.from({ length: 5 }, (_, index) => chargeUserQuota(
-      index % 2 === 0 ? first : second, 1, 'upstream-a', [charge('3', '0.07')],
+      index % 2 === 0 ? first : second, 1, 'upstream-a', { spentUsd: '0.21', unpriced: false },
     )));
-    await chargeUserQuota(second, 1, 'upstream-b', [charge('5', '0.03'), charge('2', null)]);
+    await chargeUserQuota(second, 1, 'upstream-b', { spentUsd: '0.15', unpriced: true });
     expect(await first.userQuotas.get(total.id)).toMatchObject({ spentUsd: '1.2', unpriced: true });
     expect(await first.userQuotas.get(upstream.id)).toMatchObject({ spentUsd: '1.05', unpriced: false });
-    await expect(chargeUserQuota(first, 1, 'upstream-a', [charge('-1', '0.25')])).rejects.toThrow('negative quota charge');
+    expect(() => quotaChargeForMetrics([{ metric: 'input_tokens', quantity: '-1', unitPrice: '0.25' }])).toThrow('negative quota charge');
     expect(await hasQuotaCapacity(first, 1, 'upstream-a')).toBe(false);
     expect(await hasQuotaCapacity(first, 1, 'upstream-b')).toBe(true);
-    await chargeUserQuota(second, 1, 'upstream-b', [charge('8', '0.1')]);
+    await chargeUserQuota(second, 1, 'upstream-b', { spentUsd: '0.8', unpriced: false });
     expect(await hasQuotaCapacity(first, 1, 'upstream-b')).toBe(false);
   });
 
@@ -71,26 +85,29 @@ describe('user quota accounting', () => {
   ] as const)('renews a %s quota at its UTC calendar boundary', async (kind, before, boundary, renewed) => {
     vi.useFakeTimers({ toFake: ['Date'] });
     const repo = new SqlRepo(await createSqliteTestDb());
+    await seedKey(repo);
     vi.setSystemTime(Date.parse(before));
-    const quota = makeQuota({ reset: { kind }, spentUsd: '1.2' });
+    await recordSpend(repo, 'upstream', Date.now() - 3_600_000, '1.2', false);
+    const quota = makeQuota({ reset: { kind } });
     await repo.userQuotas.insert(quota);
     expect(await hasQuotaCapacity(repo, 1, 'upstream')).toBe(false);
     vi.setSystemTime(Date.parse(boundary));
     expect(await hasQuotaCapacity(repo, 1, 'upstream')).toBe(true);
     const after = await currentQuota(repo, quota, Date.now());
     expect(after).toMatchObject({ startsAt: Date.parse(boundary), renewsAt: Date.parse(renewed), spentUsd: '0' });
-    await chargeUserQuota(repo, 1, 'upstream', [charge('7', '0.01')]);
-    expect(await repo.userQuotas.get(quota.id)).toMatchObject({ startsAt: Date.parse(boundary), spentUsd: '0.07' });
+    await recordSpend(repo, 'upstream', Date.now(), '0.07');
+    expect(await currentQuota(repo, quota, Date.now())).toMatchObject({ startsAt: Date.parse(boundary), spentUsd: '0.07' });
   });
 
   it('only renews on a refill of the chosen upstream and window, even within the current telemetry hour', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(20 * 60_000);
     const repo = new SqlRepo(await createSqliteTestDb());
+    await seedKey(repo);
     const upstream = buildChatGPTUpstreamRecord();
     await saveUpstreamForTest(repo.upstreams, upstream);
     const metric = { name: 'quota.window.used_percent', labels: { limit: 'codex', window_seconds: 18_000 } };
-    const quota = makeQuota({ startsAt: 10_000, spentUsd: '1.2', reset: { kind: 'upstream', upstreamId: upstream.id, metric } });
+    const quota = makeQuota({ startsAt: 300_000, spentUsd: '1.2', reset: { kind: 'upstream', upstreamId: upstream.id, metric } });
     await repo.userQuotas.insert(quota);
     const observe = (timestamp: number, value: number, window = 18_000) => repo.upstreamMetrics.record({
       upstreamId: upstream.id, ...metric, labels: { ...metric.labels, window_seconds: window }, timestamp, value,
@@ -103,11 +120,18 @@ describe('user quota accounting', () => {
     expect(await hasQuotaCapacity(repo, 1, 'not-the-clock-upstream')).toBe(false);
     await observe(181_000, 0);
     await observe(241_000, 0);
+    await recordSpend(repo, 'not-the-clock-upstream', 120_000, '2');
+    await recordSpend(repo, 'not-the-clock-upstream', 181_000, '0.6');
     expect(await hasQuotaCapacity(repo, 1, 'not-the-clock-upstream')).toBe(true);
     await observe(182_000, 4);
     await observe(242_000, 5);
-    await chargeUserQuota(repo, 1, 'not-the-clock-upstream', [charge('3', '0.2')]);
-    expect(await repo.userQuotas.get(quota.id)).toMatchObject({ startsAt: 181_000, spentUsd: '0.6' });
+    const saved = (await repo.userQuotas.get(quota.id))!;
+    expect(saved.observedCycleStart).toBe(181_000);
+    expect(await readQuotaPeriod(repo, saved, Date.now())).toMatchObject({ startsAt: 181_000, spentUsd: '0.6', partialHistory: false });
+    await recordSpend(repo, 'not-the-clock-upstream', 300_000, '5', false);
+    expect(await readQuotaPeriod(repo, saved, Date.now())).toMatchObject({ startsAt: 181_000, spentUsd: '0.6', partialHistory: true });
+    await recordSpend(repo, 'not-the-clock-upstream', 301_000, '0.4');
+    expect(await hasQuotaCapacity(repo, 1, 'not-the-clock-upstream')).toBe(false);
   });
 
   it.each([

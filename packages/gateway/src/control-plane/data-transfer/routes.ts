@@ -17,7 +17,7 @@ import { type CtxWithJson, type CtxWithQuery } from '../../middleware/zod-valida
 import { groupNameKey } from '../../repo/group-names.ts';
 import { getRepo } from '../../repo/index.ts';
 import { DIRECT_FALLBACK_IDS } from '../../repo/proxy-fallback-list.ts';
-import type { ApiKey, Group, SiteSettings, UpstreamMetricRecord, PerformanceTelemetryRecord, UsageRecord, User, UserPreferencesRepo, WebSearchUsageRecord } from '../../repo/types.ts';
+import type { ApiKey, Group, SiteSettings, UpstreamMetricRecord, PerformanceTelemetryRecord, UsageRecord, UsageSettlement, User, UserPreferencesRepo, WebSearchUsageRecord } from '../../repo/types.ts';
 import type { QuotaRecord } from '../../user-quotas/schema.ts';
 import { type exportQuery, type importBody } from '../schemas.ts';
 import { saveUpstreams } from '../shared/save-upstreams.ts';
@@ -37,6 +37,7 @@ interface ExportPayload {
     upstreams: FullSerializedUpstreamRecord[];
     proxies: SerializedProxy[];
     usage: UsageRecord[];
+    usageSettlements: UsageSettlement[];
     searchUsage: WebSearchUsageRecord[];
     upstreamMetrics: UpstreamMetricRecord[];
     performance?: PerformanceTelemetryRecord[];
@@ -114,7 +115,7 @@ export const exportData = async (c: CtxWithQuery<typeof exportQuery>) => {
   const includePerformance = c.req.valid('query').include_performance === '1';
   const memberships = await repo.groups.listMemberships();
 
-  const [users, userPreferences, userQuotas, groups, accessRecords, apiKeys, usage, webSearchUsage, upstreamMetrics, performance, rawWebSearchConfig, upstreams, proxies, siteSettings] = await Promise.all([
+  const [users, userPreferences, userQuotas, groups, accessRecords, apiKeys, usage, usageSettlements, webSearchUsage, upstreamMetrics, performance, rawWebSearchConfig, upstreams, proxies, siteSettings] = await Promise.all([
     repo.users.listIncludingDeleted(),
     repo.userPreferences.listAll(),
     repo.userQuotas.list(),
@@ -122,6 +123,7 @@ export const exportData = async (c: CtxWithQuery<typeof exportQuery>) => {
     repo.accessRecords.list(),
     repo.apiKeys.listIncludingDeleted(),
     repo.usage.listAll(),
+    repo.usage.listSettlements(),
     repo.webSearchUsage.listAll(),
     repo.upstreamMetrics.listAll(),
     includePerformance ? repo.performance.listAll() : Promise.resolve([]),
@@ -145,6 +147,7 @@ export const exportData = async (c: CtxWithQuery<typeof exportQuery>) => {
       upstreams: upstreams.map(upstreamRecordToFullJson),
       proxies: proxies.map(proxy => ({ id: proxy.id, name: proxy.name, url: proxy.url, dial_timeout_seconds: proxy.dialTimeoutSeconds })),
       usage,
+      usageSettlements,
       searchUsage: webSearchUsage,
       upstreamMetrics,
       performanceIncluded: includePerformance,
@@ -161,7 +164,7 @@ export const importData = async (c: CtxWithJson<typeof importBody>) => {
   const { mode, data: rawData } = c.req.valid('json');
   const parsed = parseImportData(rawData);
   if (parsed.type === 'invalid') return c.json({ error: parsed.error }, 400);
-  const { users, userPreferences, userQuotas, groups, accessRecords, apiKeys, upstreams, proxies, usage, searchUsage, upstreamMetrics, performance, performanceIncluded, searchConfig, siteSettings } = parsed.data;
+  const { users, userPreferences, userQuotas, groups, accessRecords, apiKeys, upstreams, proxies, usage, usageSettlements, searchUsage, upstreamMetrics, performance, performanceIncluded, searchConfig, siteSettings } = parsed.data;
 
   const repo = getRepo();
   // Merge mode needs each key's prior dump policy to identify transitions that
@@ -253,6 +256,7 @@ export const importData = async (c: CtxWithJson<typeof importBody>) => {
     }
   }
   for (const record of usage) await repo.usage.set(record);
+  for (const settlement of usageSettlements) await repo.usage.setSettlement(settlement);
   for (const record of searchUsage) await repo.webSearchUsage.set(record);
   for (const record of upstreamMetrics) await repo.upstreamMetrics.set(record);
   await saveUpstreams(await Promise.all(normalizedUpstreams.map(async next => ({

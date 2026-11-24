@@ -21,7 +21,7 @@ it('lets admins manage quotas while users can only read their own usage', async 
   const { id } = await response.json();
   expect((await request('user-quotas', adminSession, 'POST', input)).status).toBe(409);
   expect((await request('user-quotas', adminSession, 'POST', { ...input, userId: 1 })).status).toBe(201);
-  await chargeUserQuota(repo, apiKey.userId, 'u1', [{ metric: 'input_tokens', quantity: '9', unitPrice: '0.1' }]);
+  await chargeUserQuota(repo, apiKey.userId, 'u1', { spentUsd: '0.9', unpriced: false });
   const userData = await (await request('user-quotas?userId=1', session.id)).json();
   expect(userData.options).toBeNull();
   expect(userData.quotas).toHaveLength(1);

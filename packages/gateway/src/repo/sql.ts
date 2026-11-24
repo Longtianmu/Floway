@@ -7,6 +7,8 @@ import { matchesModelsRefreshInputs } from './models-refresh-inputs.ts';
 import { SqlOpenAIResponsesItemsRepo, SqlOpenAIResponsesSnapshotsRepo } from './openai-responses-state-sql.ts';
 import { querySqlPerformanceOverview } from './performance-overview-sql.ts';
 import { normalizeProxyFallbackList } from './proxy-fallback-list.ts';
+import { listUsageSettlements, querySqlQuotaUsage, usageSettlementUpsert } from './quota-usage-sql.ts';
+import { assertSettlementForUsage } from './quota-usage.ts';
 import { SqlScheduledMaintenanceRepo } from './scheduled-maintenance-sql.ts';
 import { generateSessionToken } from './session-tokens.ts';
 import { SqlSpilledFilesRepo } from './spilled-files-sql.ts';
@@ -42,6 +44,7 @@ import type {
   ProxyRecord,
   ProxyRepo,
   Repo,
+  QuotaUsageWindow,
   OpenAIResponsesItemsRepo,
   OpenAIResponsesSnapshotsRepo,
   ScheduledMaintenanceRepo,
@@ -59,6 +62,7 @@ import type {
   UsageOverviewQueryOptions,
   UsageOverviewResult,
   UsageRepo,
+  UsageSettlement,
   User,
   UserDirectory,
   UserPreferencesRepo,
@@ -833,13 +837,18 @@ class SqlUsageRepo implements UsageRepo {
     throw new Error(`Failed to aggregate usage metric ${row.metric} after 100 concurrent updates`);
   }
 
-  async record(record: UsageRecord): Promise<void> {
+  async record(record: UsageRecord, settlement?: UsageSettlement): Promise<void> {
     const upstream = record.upstream ?? null;
     const selector = canonicalPricingSelectorKey(record.pricingSelector);
-    await this.db.prepare(
+    const request = this.db.prepare(
       `INSERT INTO usage_requests (key_id, model, upstream, model_key, hour, pricing_selector, requests) VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT DO UPDATE SET requests = requests + excluded.requests`,
-    ).bind(record.keyId, record.model, upstream, record.modelKey, record.hour, selector, record.requests).run();
+    ).bind(record.keyId, record.model, upstream, record.modelKey, record.hour, selector, record.requests);
+    if (settlement === undefined) await request.run();
+    else {
+      assertSettlementForUsage(record, settlement);
+      await runStatements(this.db, [request, usageSettlementUpsert(this.db, settlement)]);
+    }
     await Promise.all(usageMetricRows(record).map(row => this.addMetric(record, upstream, selector, row)));
   }
 
@@ -862,6 +871,10 @@ class SqlUsageRepo implements UsageRepo {
     return querySqlUsageOverview(this.db, opts);
   }
 
+  queryQuotaUsage(window: QuotaUsageWindow) {
+    return querySqlQuotaUsage(this.db, window);
+  }
+
   queryUpstreamCost(upstreamId: string, start: string, end: string) {
     return querySqlUpstreamCost(this.db, upstreamId, start, end);
   }
@@ -872,6 +885,14 @@ class SqlUsageRepo implements UsageRepo {
       this.db.prepare('SELECT key_id, model, upstream, model_key, hour, pricing_selector, requests FROM usage_requests').all<UsageRequestRow>(),
     ]);
     return assembleUsageRecords(metrics, requests);
+  }
+
+  listSettlements(): Promise<UsageSettlement[]> {
+    return listUsageSettlements(this.db);
+  }
+
+  async setSettlement(settlement: UsageSettlement): Promise<void> {
+    await usageSettlementUpsert(this.db, settlement).run();
   }
 
   async set(record: UsageRecord): Promise<void> {
@@ -892,7 +913,7 @@ class SqlUsageRepo implements UsageRepo {
   }
 
   async deleteAll(): Promise<void> {
-    await runStatements(this.db, [this.db.prepare('DELETE FROM usage'), this.db.prepare('DELETE FROM usage_requests')]);
+    await runStatements(this.db, [this.db.prepare('DELETE FROM usage'), this.db.prepare('DELETE FROM usage_requests'), this.db.prepare('DELETE FROM usage_settlements')]);
   }
 }
 

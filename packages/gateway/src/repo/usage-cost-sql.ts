@@ -1,19 +1,12 @@
+import { usageChargeForTerms } from './quota-usage.ts';
 import type { SqlDatabase } from '@floway-dev/platform';
-import { addDecimalStrings, decimalStringIsZero, multiplyDecimalStrings, parseNonNegativeDecimalString, type DecimalString } from '@floway-dev/protocols/common';
+import type { DecimalString } from '@floway-dev/protocols/common';
 
 type CostTerm = { quantity: string; unitPrice: string | null; occurrences: number };
 
 export const sumUsageCostTerms = (terms: readonly CostTerm[]): DecimalString | null => {
-  let cost = '0';
-  for (const { quantity: raw, unitPrice, occurrences } of terms) {
-    if (!Number.isSafeInteger(occurrences) || occurrences <= 0) throw new RangeError('Invalid usage cost occurrence count');
-    const quantity = parseNonNegativeDecimalString(raw, 'usage cost quantity');
-    if (decimalStringIsZero(quantity)) continue;
-    if (unitPrice === null) return null;
-    const price = parseNonNegativeDecimalString(unitPrice, 'usage cost unit price');
-    cost = addDecimalStrings(cost, multiplyDecimalStrings(multiplyDecimalStrings(quantity, price), String(occurrences)));
-  }
-  return cost;
+  const charge = usageChargeForTerms(terms);
+  return charge.unpriced ? null : charge.spentUsd;
 };
 
 export const querySqlUpstreamCost = async (db: SqlDatabase, upstreamId: string, start: string, end: string): Promise<DecimalString | null> => {

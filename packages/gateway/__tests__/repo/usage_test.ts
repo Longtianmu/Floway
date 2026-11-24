@@ -3,6 +3,7 @@ import { test } from 'vitest';
 import { InMemoryRepo } from './memory.ts';
 import { type CompletedStatement, recordCompletedStatements } from './recording-sql.ts';
 import { assertD1CompoundSelectLimit, createSqliteTestDb } from './test-sqlite.ts';
+import { usageHourAt } from '../../src/repo/quota-usage.ts';
 import { SqlRepo } from '../../src/repo/sql.ts';
 import type { ApiKey, Repo, UsageOverviewQueryOptions, UsageRecord } from '../../src/repo/types.ts';
 import { tokenRatesFromUsage, tokenUsageMetrics } from '../../src/repo/usage-metrics.ts';
@@ -49,6 +50,35 @@ const apiKey = (id: string, userId: number): ApiKey => ({
 const query = (repo: Repo) => repo.usage.query({ keyIds: ['key-1'], start: '2026-07-12T00', end: '2026-07-12T01' });
 
 for (const backend of backends) {
+  test(`${backend.name} quota usage combines only the priced scope's precise boundary and complete hours`, async () => {
+    const repo = await backend.make();
+    await repo.apiKeys.save(apiKey('key-1', 1));
+    await repo.apiKeys.save({ ...apiKey('old-key', 1), serverSecret: 'fe'.repeat(32), deletedAt: '2026-07-12T01:00:00Z' });
+    await repo.users.save({ id: 2, username: 'second-user', isAdmin: false, passwordHash: null, createdAt: new Date(0).toISOString(), deletedAt: null });
+    await repo.apiKeys.save(apiKey('other-key', 2));
+    const start = Date.parse('2026-07-12T00:30:00Z');
+    const through = Date.parse('2026-07-12T01:05:00Z');
+    const accept = async (keyId: string, upstream: string, timestamp: number, spentUsd: string) => {
+      await repo.usage.record(record({
+        keyId, upstream, hour: usageHourAt(timestamp), metrics: [{ metric: 'input_tokens', quantity: spentUsd, unitPrice: '1' }],
+      }), { id: crypto.randomUUID(), keyId, upstream, timestamp, spentUsd, unpriced: false });
+    };
+    await accept('key-1', 'up_chatgpt', start - 1, '4');
+    await accept('old-key', 'up_chatgpt', start, '0.6');
+    await accept('other-key', 'up_chatgpt', start, '8');
+    await accept('key-1', 'up_ollama', start, '2');
+    await accept('key-1', 'up_chatgpt', through, '0.9');
+    await repo.usage.record(record({
+      hour: '2026-07-12T01',
+      metrics: [{ metric: 'output_tokens', quantity: '5', unitPrice: null }],
+    }));
+    const window = { userId: 1, upstreamId: 'up_chatgpt', start, through };
+    assertEquals(await repo.usage.queryQuotaUsage(window), { spentUsd: '1.5', unpriced: true, partialHistory: false });
+    assertEquals(await repo.usage.queryQuotaUsage({ ...window, upstreamId: null }), { spentUsd: '3.5', unpriced: true, partialHistory: false });
+    await repo.usage.record(record({ metrics: [{ metric: 'input_tokens', quantity: '1', unitPrice: '1' }] }));
+    assertEquals(await repo.usage.queryQuotaUsage(window), { spentUsd: '1.5', unpriced: true, partialHistory: true });
+  });
+
   test(`${backend.name} usage repo scopes a time window to a set of keys`, async () => {
     const repo = await backend.make();
     await Promise.all([
