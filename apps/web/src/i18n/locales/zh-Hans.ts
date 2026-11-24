@@ -2068,7 +2068,8 @@ const zhHansCN = {
         manual: '手动重置',
         upstream: '按上游重置',
         source: '{{upstream}} · {{metric}}',
-        renews: '{{time}}后重置',
+        renewsInDaysHours: '{{days, number}} 天 {{hours, number}} 小时后重置',
+        renewsInHoursMinutes: '{{hours, number}} 小时 {{minutes, number}} 分后重置',
         unknown: '重置时间暂不可用',
         unavailable: '重置来源上游不可用',
         waiting: '尚未观测到上游重置',
@@ -2078,8 +2079,7 @@ const zhHansCN = {
       },
       enforcement: {
         toggle: '达到上限后拦截新请求',
-        block: '已启用拦截',
-        observe: '仅观测',
+        block: '达到上限后将拦截新请求',
       },
       progress: {
         label: '配额用量',

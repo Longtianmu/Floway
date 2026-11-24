@@ -2090,7 +2090,8 @@ const en = {
         manual: 'Manual',
         upstream: 'Upstream reset',
         source: '{{upstream}} · {{metric}}',
-        renews: 'Resets in {{time}}',
+        renewsInDaysHours: 'Resets in {{days, number}}d {{hours, number}}h',
+        renewsInHoursMinutes: 'Resets in {{hours, number}}h {{minutes, number}}m',
         unknown: 'Reset time unavailable',
         unavailable: 'Reset upstream unavailable',
         waiting: 'No upstream reset observed yet',
@@ -2100,8 +2101,7 @@ const en = {
       },
       enforcement: {
         toggle: 'Block requests when the limit is reached',
-        block: 'Blocking enabled',
-        observe: 'Monitoring only',
+        block: 'Requests are blocked when the limit is reached',
       },
       progress: {
         label: 'Quota used',

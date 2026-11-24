@@ -4,9 +4,7 @@ import { useId, useState } from 'react';
 import type { Quota } from './data';
 import { QuotaProgress } from './progress';
 import { fluentComponents } from '../../fluent';
-import { useTranslation } from '../../i18n/translation';
-import { formatRemaining } from '../../lib/format-duration';
-import { useLocale } from '../../lib/use-locale';
+import { type TFunction, useTranslation } from '../../i18n/translation';
 import { useMediaQuery } from '../../lib/use-media-query';
 import { useNow } from '../../lib/use-now';
 import { ResourceListEmptyState, ResourceListPanel } from '../ui/resource-list';
@@ -17,6 +15,20 @@ import { TooltipIconButton } from '../ui/tooltip-icon-button';
 import { upstreamMetricDisplayName } from '../upstream-metrics/display-name';
 
 const { Button, List, ListItem, Table, TableBody, TableCell, TableHeader, TableHeaderCell, TableRow, Text, makeStyles } = fluentComponents;
+
+const MINUTE_MS = 60_000;
+const MINUTES_PER_HOUR = 60;
+const HOUR_MS = MINUTES_PER_HOUR * MINUTE_MS;
+const HOURS_PER_DAY = 24;
+
+const resetCountdown = (remainingMs: number, t: TFunction): string => {
+  if (remainingMs > HOURS_PER_DAY * HOUR_MS) {
+    const hours = Math.floor(remainingMs / HOUR_MS);
+    return t('quotas.period.renewsInDaysHours', { days: Math.floor(hours / HOURS_PER_DAY), hours: hours % HOURS_PER_DAY });
+  }
+  const minutes = Math.ceil(remainingMs / MINUTE_MS);
+  return t('quotas.period.renewsInHoursMinutes', { hours: Math.floor(minutes / MINUTES_PER_HOUR), minutes: minutes % MINUTES_PER_HOUR });
+};
 
 const useStyles = makeStyles({
   // Use the same separator as ResourceListPanel's table rows.
@@ -31,8 +43,7 @@ interface Actions {
 
 export function QuotaTable({ quotas, actions, disabled }: { quotas: readonly Quota[]; actions?: Actions; disabled: boolean }) {
   const { t } = useTranslation();
-  const locale = useLocale();
-  const now = useNow(60_000);
+  const now = useNow(MINUTE_MS);
   const narrow = useMediaQuery('(max-width: 1050px)');
   const styles = useStyles();
   const groupId = useId();
@@ -60,7 +71,7 @@ export function QuotaTable({ quotas, actions, disabled }: { quotas: readonly Quo
   const period = (quota: Quota) => {
     const remaining = (quota.renewsAt ?? now) - now;
     const timing = !quota.resetAvailable ? t('quotas.period.unavailable')
-      : remaining > 0 ? t('quotas.period.renews', { time: formatRemaining(remaining, locale) })
+      : remaining > 0 ? resetCountdown(remaining, t)
         : quota.reset.kind !== 'manual' && !quota.waitingForReset ? t('quotas.period.unknown') : null;
     return <div className="grid gap-0.5 min-w-0 [overflow-wrap:anywhere]">
       <Text size={300}>
@@ -70,7 +81,7 @@ export function QuotaTable({ quotas, actions, disabled }: { quotas: readonly Quo
       </Text>
       {timing !== null && <Text size={200} className="text-fui-fg2">{timing}</Text>}
       {quota.resetAvailable && quota.waitingForReset && <Text size={200} className="text-fui-fg2">{t('quotas.period.waiting')}</Text>}
-      <Text size={200} className="text-fui-fg2">{t(quota.enforce ? 'quotas.enforcement.block' : 'quotas.enforcement.observe')}</Text>
+      {quota.enforce && <Text size={200} className="text-fui-fg2">{t('quotas.enforcement.block')}</Text>}
     </div>;
   };
   const controls = (quota: Quota) => actions && <TableActions>

@@ -14,7 +14,7 @@ const rule = (id: string, userId: number, username: string, extra?: Partial<Quot
   ...extra,
 });
 const first = rule('alice-total', 1, 'Alice');
-const second = rule('alice-chat', 1, 'Alice', { upstreamId: 'chat', upstreamName: 'ChatGPT' });
+const second = rule('alice-chat', 1, 'Alice', { upstreamId: 'chat', upstreamName: 'ChatGPT', enforce: false });
 const third = rule('bob-total', 2, 'Bob');
 const actions = { edit: vi.fn(), confirm: vi.fn() };
 
@@ -33,6 +33,8 @@ test.each([false, true])('groups admin quotas by user on a narrow viewport: %s',
   expect(alice.getAttribute('aria-expanded')).toBe('true');
   expect(screen.getByText('ChatGPT')).toBeTruthy();
   expect(screen.getAllByRole('progressbar')).toHaveLength(2);
+  expect(screen.getAllByText('Requests are blocked when the limit is reached')).toHaveLength(1);
+  expect(screen.queryByText('Monitoring only')).toBeNull();
   fireEvent.click(bob);
   expect(screen.getAllByRole('progressbar')).toHaveLength(3);
   fireEvent.click(alice);
@@ -44,6 +46,8 @@ test('shows a member their own rules without an administrator disclosure', () =>
   renderInApp(<QuotaTable quotas={[{ ...first, partialHistory: true }, second]} disabled={false} />);
   expect(screen.queryByRole('button', { name: /Alice/ })).toBeNull();
   expect(screen.getAllByRole('progressbar')).toHaveLength(2);
+  expect(screen.getAllByText('Requests are blocked when the limit is reached')).toHaveLength(1);
+  expect(screen.queryByText('Monitoring only')).toBeNull();
   expect(screen.getByText('Some historical usage in the first hour could not be attributed to this period')).toBeTruthy();
 });
 
@@ -58,14 +62,27 @@ test('shows only relative reset times and updates them while the quotas are open
   const waiting = rule('waiting', 1, 'Alice', { reset, waitingForReset: true });
   renderInApp(<QuotaTable quotas={[calendar, timed, manual, unavailable, waiting]} disabled={false} />);
   expect(screen.getByText('Resets in 2h 15m')).toBeTruthy();
-  expect(screen.getByText('Resets in 2m')).toBeTruthy();
+  expect(screen.getByText('Resets in 0h 2m')).toBeTruthy();
   expect(screen.getByText('Manual')).toBeTruthy();
   expect(screen.getByText('Reset upstream unavailable')).toBeTruthy();
   expect(screen.getByText('No upstream reset observed yet')).toBeTruthy();
   expect(screen.queryByText(/^Started /)).toBeNull();
   act(() => { vi.advanceTimersByTime(60_000); });
-  expect(screen.getByText('Resets in 1m')).toBeTruthy();
+  expect(screen.getByText('Resets in 0h 1m')).toBeTruthy();
   act(() => { vi.advanceTimersByTime(60_000); });
-  expect(screen.queryByText(/^Resets in \d+m$/)).toBeNull();
+  expect(screen.queryByText(/^Resets in 0h /)).toBeNull();
   expect(screen.getByText('Reset time unavailable')).toBeTruthy();
+});
+
+test.each([
+  ['2026-11-27T07:45:00Z', '2d 7h'],
+  ['2026-11-26T00:00:00.001Z', '1d 0h'],
+  ['2026-11-26T00:00:00Z', '24h 0m'],
+  ['2026-11-25T23:59:00Z', '23h 59m'],
+  ['2026-11-25T00:00:01Z', '0h 1m'],
+])('formats the reset countdown ending %s as %s', (timestamp, duration) => {
+  vi.useFakeTimers({ now: Date.parse('2026-11-25T00:00:00Z'), toFake: ['Date', 'setInterval', 'clearInterval'] });
+  const quota = rule('scheduled', 1, 'Alice', { reset: { kind: 'month' }, renewsAt: Date.parse(timestamp) });
+  renderInApp(<QuotaTable quotas={[quota]} disabled={false} />);
+  expect(screen.getByText(`Resets in ${duration}`)).toBeTruthy();
 });
