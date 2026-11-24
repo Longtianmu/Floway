@@ -1,7 +1,9 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { GatewayCtx } from '../../../src/data-plane/shared/gateway-ctx.ts';
 import { iterateCandidates } from '../../../src/data-plane/shared/iterate-candidates.ts';
+import { initRepo } from '../../../src/repo/index.ts';
+import { InMemoryRepo } from '../../repo/memory.ts';
 import { mockGatewayCtx } from '../../test-utils/gateway-ctx.ts';
 import type { ModelCandidate, PerformanceTelemetryContext } from '@floway-dev/provider';
 import { ProxyDialError } from '@floway-dev/proxy';
@@ -29,6 +31,7 @@ const stubCandidate = (id: string, upstream = 'up'): ModelCandidate =>
 const stubCtx = (attempt: GatewayCtx['attempt']): GatewayCtx => mockGatewayCtx({ attempt });
 
 describe('iterateCandidates', () => {
+  beforeEach(() => initRepo(new InMemoryRepo()));
   afterEach(() => vi.useRealTimers());
 
   it('clears the timing slots and stamps telemetry from the current candidate on entry', async () => {

@@ -43,8 +43,9 @@ test('recordUsage prices audio duration and token metrics together', async () =>
   const repo = new InMemoryRepo();
   initRepo(repo);
 
+  const background: Promise<unknown>[] = [];
   await recordUsage(
-    'key-a',
+    { apiKeyId: 'key-a', user: (await repo.users.getById(1))!, backgroundScheduler: work => { background.push(work); } },
     {
       model: 'composite-audio-model',
       upstream: 'upstream-a',
@@ -54,6 +55,7 @@ test('recordUsage prices audio duration and token metrics together', async () =>
     { input_audio_seconds: '90.5', input_audio_tokens: '2400' },
     { inputTokens: 2400 },
   );
+  await Promise.all(background);
 
   const [row] = await repo.usage.listAll();
   assertEquals(row.metrics, [

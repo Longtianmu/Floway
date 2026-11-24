@@ -48,6 +48,7 @@ describe('translation resources', () => {
       'monitoring',
       'directory',
       'permissions',
+      'quotas',
       'backupRestore',
       'settings',
     ]);

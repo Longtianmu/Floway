@@ -47,7 +47,7 @@ export const respondOpenAICompletionsSse = (
     settle: outcome => {
       const usage = settleUsage();
       const failed = recordSseOutcome(ctx, outcome, identity, usage);
-      settle(ctx, performance, identity, usage, failed);
+      return settle(ctx, performance, identity, usage, failed);
     },
   });
 };

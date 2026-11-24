@@ -13,6 +13,7 @@ import { PASSWORD_HASH_SCHEME } from '../../shared/passwords.ts';
 import { RETENTION_MAX_SECONDS } from '../../shared/retention.ts';
 import { parseServerSecret } from '../../shared/server-secret.ts';
 import { isWebSearchProviderName } from '../../shared/web-search-providers.ts';
+import { quotaRecordSchema, type QuotaRecord } from '../../user-quotas/schema.ts';
 import { USERNAME_PATTERN } from '../schemas.ts';
 import { isRecord } from '../shared/field-validators.ts';
 import { parseUpstreamIdsValue } from '../shared/upstream-ids.ts';
@@ -37,6 +38,7 @@ export interface SerializedProxy {
 export interface ParsedImportData {
   users: User[];
   userPreferences: Array<{ userId: number; preferences: UserPreferences }>;
+  userQuotas: QuotaRecord[];
   groups: Array<Group & { memberIds: number[] }>;
   accessRecords: AccessRecordInput[];
   apiKeys: ApiKey[];
@@ -531,6 +533,18 @@ export const parseImportData = (value: unknown): ImportDataParseResult => {
     },
   });
   if (userPreferences.type === 'invalid') return userPreferences;
+  const userQuotas = parseCollection('userQuotas', quotaRecordSchema, value.userQuotas, { arrayError: 'userQuotas must be an array', optional: true });
+  if (userQuotas.type === 'invalid') return userQuotas;
+  const activeUserIds = new Set(users.records.filter(user => user.deletedAt === null).map(user => user.id));
+  const quotaIds = new Set<string>();
+  const quotaScopes = new Set<string>();
+  for (const quota of userQuotas.records) {
+    if (!activeUserIds.has(quota.userId)) return { type: 'invalid', error: 'invalid userQuotas: quota must belong to an active user in the payload' };
+    const scope = JSON.stringify([quota.userId, quota.upstreamId]);
+    if (quotaIds.has(quota.id) || quotaScopes.has(scope)) return { type: 'invalid', error: 'invalid userQuotas: duplicate quota id or scope' };
+    quotaIds.add(quota.id);
+    quotaScopes.add(scope);
+  }
   const groups = parseCollection('groups', groupTransferSchema, value.groups, {
     arrayError: 'groups must be an array',
     validateInput: (input, _index, prior) => {
@@ -631,6 +645,7 @@ export const parseImportData = (value: unknown): ImportDataParseResult => {
     data: {
       users: users.records,
       userPreferences: userPreferences.records,
+      userQuotas: userQuotas.records,
       groups: groups.records,
       accessRecords: accessRecords.records,
       apiKeys: apiKeys.records,

@@ -16,6 +16,7 @@ import { appendFailedUpstreams } from './failed-upstreams.ts';
 import type { GatewayCtx } from './gateway-ctx.ts';
 import { iterateCandidates } from './iterate-candidates.ts';
 import { passthroughAttempt } from './passthrough-attempt.ts';
+import { userQuotaErrorResponse } from './quota-response.ts';
 import { recordFailedRequest } from './telemetry/performance.ts';
 import { settle } from './telemetry/settle.ts';
 import { forwardUpstreamResponse, providerModelsUnavailableResponse } from './upstream-response.ts';
@@ -163,9 +164,14 @@ export const passthroughServe = async (input: PassthroughServeContext): Promise<
     }
     const usage = parsed !== undefined ? responseHandling.extractBilling(parsed) : null;
     ctx.dump?.success(identity, usage);
-    settle(ctx, performanceContext, identity, usage, false);
+    await settle(ctx, performanceContext, identity, usage, false);
     return forwardUpstreamResponse(response);
   } catch (e) {
+    const quotaError = userQuotaErrorResponse(c, e);
+    if (quotaError !== null) {
+      ctx.dump?.error('gateway');
+      return quotaError;
+    }
     const forwarded = providerModelsUnavailableResponse(e);
     if (forwarded) {
       ctx.dump?.error('upstream');

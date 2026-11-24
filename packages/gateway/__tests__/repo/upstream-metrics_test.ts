@@ -39,6 +39,25 @@ for (const [name, create] of [
       expect(records.filter(record => record.upstreamId === 'up-1' && record.name === 'quota.remaining' && record.labels.quota === 'premium_interactions')).toEqual([point(1_000, 20), point(80_000, 25), point(121_000, 30)]);
     });
 
+    it('requires an actual refill for reset metrics backed by an absolute allowance', async () => {
+      const repo = (await create()).upstreamMetrics;
+      const remaining = { name: 'quota.remaining', labels: { quota: 'premium_interactions' } };
+      const allowance = { ...remaining, name: 'quota.entitlement' };
+      const observe = async (timestamp: number, balance: number, total: number) => {
+        await repo.record(point(timestamp, balance, remaining));
+        await repo.record(point(timestamp, total, allowance));
+      };
+      await observe(1_000, 20, 100);
+      await observe(61_000, 20, 20);
+      await observe(121_000, 10, 20);
+      await observe(181_000, 30, 30);
+      await observe(241_000, 30, 30);
+      const threshold = { direction: 'remaining' as const, full: allowance };
+      expect(await repo.latestReset('up-1', remaining, threshold, 0, 120_000)).toBeNull();
+      expect(await repo.latestReset('up-1', remaining, threshold, 121_000, 300_000)).toBe(181_000);
+      expect(await repo.latestReset('up-1', remaining, threshold, 181_000, 300_000)).toBeNull();
+    });
+
     it('downsamples each series to its latest sample per step counted from the interval start', async () => {
       const repo = (await create()).upstreamMetrics;
       const other = { name: 'quota.remaining', labels: { quota: 'chat' } };
@@ -64,9 +83,14 @@ for (const [name, create] of [
       await repo.record(point(541_000, 100, other));
       await repo.record({ ...point(540_000, 0, identity), upstreamId: 'up-2' });
       await repo.record(point(before, 25, { name: 'future', labels: {} }));
+      const threshold = { direction: 'used', full: 0 } as const;
       expect(await repo.listIdentities('up-1', before)).toEqual([other, identity]);
-      expect(await repo.queryResetStarts('up-1', identity, { direction: 'used', full: 0 }, before)).toEqual([480_000, 360_000, 120_000]);
+      expect(await repo.listIdentities('up-1')).toContainEqual({ name: 'future', labels: {} });
+      expect(await repo.queryResetStarts('up-1', identity, threshold, before)).toEqual([480_000, 360_000, 120_000]);
       expect(await repo.queryResetStarts('up-1', other, { direction: 'remaining', full: 100 }, before)).toEqual([541_000]);
+      expect(await repo.queryResetStarts('up-1', identity, threshold, 480_000)).toEqual([360_000, 120_000]);
+      expect(await repo.latestReset('up-1', identity, threshold, 360_000, 480_000)).toBe(480_000);
+      expect(await repo.latestReset('up-1', identity, threshold, 480_000, 480_000)).toBeNull();
     });
 
     it('requires a contemporaneous positive allowance and an actual refill for absolute balances', async () => {

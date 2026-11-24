@@ -8,9 +8,10 @@ import { enumerateModelCandidates } from '../providers/resolution.ts';
 import { appendFailedUpstreams } from '../shared/failed-upstreams.ts';
 import { createGatewayCtxFromHono, finalizeGatewayResponse, type GatewayCtx } from '../shared/gateway-ctx.ts';
 import { iterateCandidates } from '../shared/iterate-candidates.ts';
+import { userQuotaErrorResponse } from '../shared/quota-response.ts';
 import { readRequestBody, takeRequestBody } from '../shared/request-body.ts';
-import { recordFailedRequest, recordPerformance, type PerformanceTelemetryContext } from '../shared/telemetry/performance.ts';
-import { recordUsage } from '../shared/telemetry/usage.ts';
+import { recordFailedRequest, type PerformanceTelemetryContext } from '../shared/telemetry/performance.ts';
+import { settleUsageMeasurement } from '../shared/telemetry/settle.ts';
 import { forwardUpstreamResponse, providerModelsUnavailableResponse } from '../shared/upstream-response.ts';
 import { parseDecimalString, parseJSONWithRawNumbers, type DecisionProtocol } from '@floway-dev/protocols/common';
 import { parseDecisionRequest, parseDecisionResponse, parseDecisionUsage, renderDecisionResponse, type ParsedDecisionRequest } from '@floway-dev/protocols/decision';
@@ -38,14 +39,11 @@ const settleDecision = (
   identity: TelemetryModelIdentity,
   usage: { inputTokens?: number } | undefined,
   failed: boolean,
-): void => {
+): Promise<void> => {
   const quantities: UsageQuantities = {};
   if (usage?.inputTokens !== undefined) quantities.input_tokens = parseDecimalString(String(usage.inputTokens));
   const pricingFacts = usage?.inputTokens === undefined ? {} : { inputTokens: usage.inputTokens };
-  ctx.backgroundScheduler(recordUsage(ctx.apiKeyId, identity, quantities, pricingFacts).catch(error => {
-    console.error('Failed to record decision usage:', error);
-  }));
-  recordPerformance(ctx, performanceContext, failed, 0, performance.now());
+  return settleUsageMeasurement(ctx, performanceContext, identity, { quantities, pricingFacts, dumpTokenUsage: null }, failed);
 };
 
 const unsupportedMessage = (model: string): string => `Model ${model} does not support decision.`;
@@ -114,7 +112,7 @@ export const decision = (sourceProtocol: DecisionProtocol) => async (c: Context)
 
     if (!terminal.http.ok) {
       ctx.dump?.error('upstream', terminal.identity.upstream);
-      settleDecision(ctx, terminal.performance, terminal.identity, undefined, true);
+      await settleDecision(ctx, terminal.performance, terminal.identity, undefined, true);
       usageSettled = true;
       return finalizeGatewayResponse(ctx, forwardUpstreamResponse(terminal.http));
     }
@@ -134,28 +132,33 @@ export const decision = (sourceProtocol: DecisionProtocol) => async (c: Context)
         error instanceof Error ? error.message : String(error),
       );
       ctx.dump?.success(terminal.identity, null);
-      settleDecision(ctx, terminal.performance, terminal.identity, undefined, false);
+      await settleDecision(ctx, terminal.performance, terminal.identity, undefined, false);
       usageSettled = true;
       return finalizeGatewayResponse(ctx, forwardUpstreamResponse(terminal.http));
     }
     measuredUsage = parseDecisionUsage(upstreamBody);
     if (sameProtocol) {
       ctx.dump?.success(terminal.identity, null);
-      settleDecision(ctx, terminal.performance, terminal.identity, measuredUsage, false);
+      await settleDecision(ctx, terminal.performance, terminal.identity, measuredUsage, false);
       usageSettled = true;
       return finalizeGatewayResponse(ctx, forwardUpstreamResponse(terminal.http));
     }
     const canonical = parseDecisionResponse(terminal.target.protocol, upstreamBody);
     const rendered = renderDecisionResponse(sourceProtocol, canonical);
     ctx.dump?.success(terminal.identity, null);
-    settleDecision(ctx, terminal.performance, terminal.identity, measuredUsage, false);
+    await settleDecision(ctx, terminal.performance, terminal.identity, measuredUsage, false);
     usageSettled = true;
     return finalizeGatewayResponse(ctx, forwardUpstreamResponse(terminal.http, { body: JSON.stringify(rendered) }));
   } catch (error) {
     if (terminal !== undefined && !usageSettled) {
-      settleDecision(ctx, terminal.performance, terminal.identity, measuredUsage, true);
+      await settleDecision(ctx, terminal.performance, terminal.identity, measuredUsage, true);
     } else if (terminal === undefined) {
       recordFailedRequest(ctx, ctx.attempt.telemetry);
+    }
+    const quotaError = userQuotaErrorResponse(c, error);
+    if (quotaError !== null) {
+      ctx.dump?.error('gateway');
+      return finalizeGatewayResponse(ctx, quotaError);
     }
     const forwarded = providerModelsUnavailableResponse(error);
     if (forwarded) {

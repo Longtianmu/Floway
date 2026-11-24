@@ -796,6 +796,11 @@ test('a full v25 export re-imports verbatim — the export→import round trip i
   await repo.users.save(USER_BOB);
   await repo.apiKeys.save(KEY_A);
   await repo.apiKeys.save({ ...KEY_B, userId: USER_BOB.id });
+  const quota = {
+    id: crypto.randomUUID(), userId: USER_BOB.id, upstreamId: 'up_chatgpt_a', limitUsd: '2', enforce: false,
+    reset: { kind: 'manual' as const }, startsAt: 1_000, spentUsd: '2.75', unpriced: true,
+  };
+  assertEquals(await repo.userQuotas.insert(quota), true);
   await saveUpstreamForTest(repo.upstreams, COPILOT_UPSTREAM);
   await saveUpstreamForTest(repo.upstreams, CUSTOM_UPSTREAM);
   await saveUpstreamForTest(repo.upstreams, AZURE_UPSTREAM);
@@ -817,6 +822,7 @@ test('a full v25 export re-imports verbatim — the export→import round trip i
 
   const exported = await doExport(app, true);
   assertEquals(exported.version, 25);
+  assertEquals(exported.data.userQuotas, [quota]);
 
   // Replace-import the export's own `data`, verbatim. If the export emits any
   // shape the import parser rejects, this 400s — the round trip is the
@@ -826,6 +832,10 @@ test('a full v25 export re-imports verbatim — the export→import round trip i
   assertEquals(result.body.imported, { users: 2, userPreferences: 0, groups: 0, accessRecords: 0, apiKeys: 2, upstreams: 4, proxies: 0, usage: 2, searchUsage: 2, upstreamMetrics: 0, performance: 2 });
 
   // Spot-check fidelity across collection types (order-independent).
+  const restoredQuota = await repo.userQuotas.get(quota.id);
+  if (restoredQuota === null) throw new Error('restored quota missing');
+  const { revision: _revision, ...quotaValue } = restoredQuota;
+  assertEquals(quotaValue, quota);
   assertEquals((await repo.upstreams.list()).find(u => u.id === 'up_chatgpt_a')?.state, CHATGPT_UPSTREAM.state);
   assertEquals((await repo.users.listIncludingDeleted()).find(u => u.id === USER_BOB.id), USER_BOB);
   assertEquals((await repo.apiKeys.findByRawKey(KEY_B.key))?.userId, USER_BOB.id);

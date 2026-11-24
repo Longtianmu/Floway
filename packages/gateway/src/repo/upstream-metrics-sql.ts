@@ -68,13 +68,13 @@ export class SqlUpstreamMetricsRepo implements UpstreamMetricsRepo {
     return decodeRecords(results);
   }
 
-  async listIdentities(upstreamId: string, before: number): Promise<UpstreamMetricIdentity[]> {
+  async listIdentities(upstreamId: string, before?: number): Promise<UpstreamMetricIdentity[]> {
     const { results } = await this.db.prepare(`
       SELECT DISTINCT metric_name AS name, metric_labels AS labelsJson
       FROM upstream_metrics
-      WHERE upstream_id = ? AND timestamp < ?
+      WHERE upstream_id = ? ${before === undefined ? '' : 'AND timestamp < ?'}
       ORDER BY metric_name, metric_labels
-    `).bind(upstreamId, before).all<{ name: string; labelsJson: string }>();
+    `).bind(upstreamId, ...(before === undefined ? [] : [before])).all<{ name: string; labelsJson: string }>();
     return results.map(({ name, labelsJson }) => normalizeUpstreamMetricIdentity(name, JSON.parse(labelsJson)));
   }
 
@@ -88,30 +88,62 @@ export class SqlUpstreamMetricsRepo implements UpstreamMetricsRepo {
   }
 
   async queryResetStarts(upstreamId: string, identity: UpstreamMetricIdentity, threshold: UpstreamMetricResetThreshold, before: number): Promise<number[]> {
+    return await this.resetStarts(upstreamId, identity, threshold, { before });
+  }
+
+  async latestReset(upstreamId: string, identity: UpstreamMetricIdentity, threshold: UpstreamMetricResetThreshold, after: number, through: number): Promise<number | null> {
+    const [latest] = await this.resetStarts(upstreamId, identity, threshold, { after, through });
+    return latest ?? null;
+  }
+
+  private async resetStarts(
+    upstreamId: string,
+    identity: UpstreamMetricIdentity,
+    threshold: UpstreamMetricResetThreshold,
+    window: { before: number } | { after: number; through: number },
+  ): Promise<number[]> {
     const metric = encodeIdentity(identity);
-    const allowance = typeof threshold.full === 'number' ? null : encodeIdentity(threshold.full);
+    const series = [upstreamId, metric.name, metric.labelsJson];
+    const full = threshold.full;
+    const allowance = typeof full === 'number' ? null : encodeIdentity(full);
     // An absolute balance is meaningful only against the allowance observed at
     // the same instant. A reduction of the allowance alone is not a refill.
-    const full = allowance === null ? '?' : `(SELECT value FROM upstream_metrics allowance
-      WHERE allowance.upstream_id = sample.upstream_id AND allowance.metric_name = ? AND allowance.metric_labels = ?
-        AND allowance.bucket = sample.bucket AND allowance.timestamp = sample.timestamp AND allowance.value > 0)`;
-    const bindings = allowance === null ? [threshold.full as number] : [allowance.name, allowance.labelsJson];
-    const depleted = threshold.direction === 'used' ? '>' : '<';
-    const { results } = await this.db.prepare(`
-      WITH observations AS (
-        SELECT timestamp, value, ${full} AS full_value FROM upstream_metrics sample
+    const fullValue = allowance === null ? '?' : `(SELECT value FROM upstream_metrics
+      WHERE upstream_id = ? AND metric_name = ? AND metric_labels = ?
+        AND bucket = sample.bucket AND timestamp = sample.timestamp AND value > 0)`;
+    const recent = 'after' in window;
+    // A bounded lookup keeps the preceding observation as a baseline for its
+    // first transition without scanning older usage history on the data plane.
+    const samples = recent ? `prior AS (
+        SELECT timestamp, bucket, value FROM upstream_metrics
+        WHERE upstream_id = ? AND metric_name = ? AND metric_labels = ? AND timestamp <= ?
+        ORDER BY timestamp DESC LIMIT 1
+      ), samples AS (
+        SELECT * FROM prior
+        UNION ALL
+        SELECT timestamp, bucket, value FROM upstream_metrics
+        WHERE upstream_id = ? AND metric_name = ? AND metric_labels = ? AND timestamp > ? AND timestamp <= ?
+      )` : `samples AS (
+        SELECT timestamp, bucket, value FROM upstream_metrics
         WHERE upstream_id = ? AND metric_name = ? AND metric_labels = ? AND timestamp < ?
+      )`;
+    const samplesParams = recent ? [...series, window.after, ...series, window.after, window.through] : [...series, window.before];
+    const { results } = await this.db.prepare(`
+      WITH ${samples}, observations AS (
+        SELECT timestamp, value, ${fullValue} AS full_value FROM samples sample
       ), transitions AS (
-        SELECT timestamp, value, full_value,
-          LAG(value) OVER (ORDER BY timestamp) AS previous_value,
-          LAG(full_value) OVER (ORDER BY timestamp) AS previous_full_value
-        FROM observations
+        SELECT timestamp, value, full_value, LAG(value) OVER cycle AS previous_value,
+          LAG(full_value) OVER cycle AS previous_full
+        FROM observations WINDOW cycle AS (ORDER BY timestamp)
       )
       SELECT timestamp FROM transitions
-      WHERE value = full_value AND previous_value ${depleted} previous_full_value
+      WHERE value = full_value AND previous_value ${threshold.direction === 'used' ? '>' : '<'} previous_full
         ${allowance === null ? '' : 'AND value > previous_value'}
-      ORDER BY timestamp DESC
-    `).bind(...bindings, upstreamId, metric.name, metric.labelsJson, before).all<{ timestamp: number }>();
+        ${recent ? 'AND timestamp > ?' : ''}
+      ORDER BY timestamp DESC ${recent ? 'LIMIT 1' : ''}
+    `).bind(...samplesParams,
+      ...(allowance === null ? [full as number] : [upstreamId, allowance.name, allowance.labelsJson]),
+      ...(recent ? [window.after] : [])).all<{ timestamp: number }>();
     return results.map(({ timestamp }) => timestamp);
   }
 }

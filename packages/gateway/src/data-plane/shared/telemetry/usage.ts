@@ -2,6 +2,8 @@ import { currentHour } from './hour.ts';
 import { getRepo } from '../../../repo/index.ts';
 import type { TokenUsage, UsageQuantities } from '../../../repo/types.ts';
 import { tokenUsageQuantities, usageMetrics } from '../../../repo/usage-metrics.ts';
+import { chargeUserQuota } from '../../../user-quotas/accounting.ts';
+import type { GatewayCtx } from '../gateway-ctx.ts';
 import { priceRequest, type BillableUsage, type PricingRuntimeFacts } from '@floway-dev/protocols/common';
 import type { TelemetryModelIdentity } from '@floway-dev/provider';
 
@@ -242,17 +244,20 @@ const splitModalityCounts = (
   return { [textUsageKey]: text ?? 0, [imageUsageKey]: image ?? 0 };
 };
 
+type UsageSubject = Pick<GatewayCtx, 'apiKeyId' | 'user' | 'backgroundScheduler'>;
+
 export const recordUsage = async (
-  keyId: string,
+  { apiKeyId, user, backgroundScheduler }: UsageSubject,
   modelIdentity: TelemetryModelIdentity,
   quantities: UsageQuantities,
   pricingFacts: PricingRuntimeFacts,
 ): Promise<void> => {
   const priced = priceRequest(modelIdentity.pricing, pricingFacts);
   const metrics = usageMetrics(quantities, priced.rates);
-  await Promise.all([
-    getRepo().usage.record({
-      keyId,
+  const repo = getRepo();
+  const telemetry = Promise.all([
+    repo.usage.record({
+      keyId: apiKeyId,
       model: modelIdentity.model,
       upstream: modelIdentity.upstream,
       modelKey: modelIdentity.modelKey,
@@ -261,13 +266,19 @@ export const recordUsage = async (
       requests: 1,
       metrics,
     }),
-    getRepo().apiKeys.update(keyId, { lastUsedAt: new Date().toISOString() }),
-  ]);
+    repo.apiKeys.update(apiKeyId, { lastUsedAt: new Date().toISOString() }),
+  ]).catch(error => console.error('Floway: failed to record usage telemetry', error));
+  const charge = chargeUserQuota(repo, user.id, modelIdentity.upstream, metrics).catch(error => {
+    console.error('Floway: failed to settle user quota', error);
+  });
+  // Retain settlement even when the client closes a stream before its EOF.
+  backgroundScheduler(Promise.all([telemetry, charge]));
+  await charge;
 };
 
-export const recordTokenUsage = async (keyId: string, modelIdentity: TelemetryModelIdentity, usage: TokenUsage | null): Promise<void> => {
+export const recordTokenUsage = async (subject: UsageSubject, modelIdentity: TelemetryModelIdentity, usage: TokenUsage | null): Promise<void> => {
   const measurement = tokenUsageMeasurement(usage);
-  await recordUsage(keyId, modelIdentity, measurement.quantities, measurement.pricingFacts);
+  await recordUsage(subject, modelIdentity, measurement.quantities, measurement.pricingFacts);
 };
 
 // `BillableUsage` is already the canonical exclusive/split shape, so pricing is

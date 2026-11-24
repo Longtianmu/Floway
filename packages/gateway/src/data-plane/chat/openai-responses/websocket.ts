@@ -674,7 +674,7 @@ const respondOpenAIResponsesWebSocket = async (input: {
       ctx.dump?.failed(`responses ws turn failed (completion=${completion}, source-failed=${state.failed})`);
     } else ctx.dump?.success(metadata.modelIdentity, tokenUsageFromBillableUsage(metadata.billableUsage));
     ctx.dump?.finalize(failed ? 500 : 200, []);
-    settle(ctx, metadata.performance, metadata.modelIdentity, tokenUsageFromBillableUsage(metadata.billableUsage), failed);
+    await settle(ctx, metadata.performance, metadata.modelIdentity, tokenUsageFromBillableUsage(metadata.billableUsage), failed);
   }
 };
 

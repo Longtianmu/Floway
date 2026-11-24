@@ -1,3 +1,4 @@
+import { USER_QUOTA_MESSAGE } from '../../../user-quotas/accounting.ts';
 import { appendFailedUpstreams } from '../../shared/failed-upstreams.ts';
 import { mergeForwardedUpstreamHeaders } from '../../shared/upstream-response.ts';
 import { inputErrorFields, type ChatServeFailure, type InputErrorDetails } from '../shared/errors.ts';
@@ -76,6 +77,8 @@ export const renderGeminiGenerateContentFailure = (
   endpoint: 'generate' | 'countTokens',
 ): ApiErrorResult => {
   switch (failure.kind) {
+  case 'quota-exceeded':
+    return geminiGenerateContentRpcErrorResult(429, USER_QUOTA_MESSAGE);
   case 'routing-unavailable':
     return geminiGenerateContentRpcErrorResult(400, failure.message);
   case 'model-missing':

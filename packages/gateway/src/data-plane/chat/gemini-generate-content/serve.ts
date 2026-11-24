@@ -57,6 +57,7 @@ export const geminiGenerateContentServe = {
         if (result.type === 'events') ctx.affinity.select(candidate);
         return result;
       },
+      () => renderGeminiGenerateContentFailure({ kind: 'quota-exceeded' }, 'generate'),
     );
   },
 
@@ -83,6 +84,7 @@ export const geminiGenerateContentServe = {
       ctx,
       'chat',
       candidate => geminiGenerateContentAttempt.countTokens({ payload: selection.payloadFor(candidate), ctx, candidate, headers }),
+      () => renderGeminiGenerateContentFailure({ kind: 'quota-exceeded' }, 'countTokens'),
     );
   },
 };

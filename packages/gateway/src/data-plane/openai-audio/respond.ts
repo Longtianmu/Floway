@@ -26,15 +26,15 @@ const respondNonStreaming = async ({ ctx, sourceApi, response, performance, iden
     }
   }
   ctx.dump?.success(identity, measurement.dumpTokenUsage);
-  settleUsageMeasurement(ctx, performance, identity, measurement, false);
+  await settleUsageMeasurement(ctx, performance, identity, measurement, false);
   return forwardUpstreamResponse(response, { defaultContentType: null });
 };
 
-const respondStreaming = ({ c, ctx, sourceApi, response, performance, identity }: PassthroughResponseStrategyContext): Response => {
+const respondStreaming = async ({ c, ctx, sourceApi, response, performance, identity }: PassthroughResponseStrategyContext): Promise<Response> => {
   const upstreamBody = response.body;
   if (!upstreamBody) {
     ctx.dump?.failed(`${sourceApi} streaming upstream returned no body`);
-    settleUsageMeasurement(ctx, performance, identity, requestOnlyUsageMeasurement(), true);
+    await settleUsageMeasurement(ctx, performance, identity, requestOnlyUsageMeasurement(), true);
     forwardUpstreamHeaders(c, response.headers);
     return passthroughApiError(c, 'Upstream returned a streaming response with no body.', 502);
   }
@@ -63,7 +63,7 @@ const respondStreaming = ({ c, ctx, sourceApi, response, performance, identity }
     },
     settle: outcome => {
       const failed = recordSseOutcome(ctx, outcome, identity, measurement.dumpTokenUsage);
-      settleUsageMeasurement(ctx, performance, identity, measurement, failed);
+      return settleUsageMeasurement(ctx, performance, identity, measurement, failed);
     },
   });
 };
@@ -71,11 +71,11 @@ const respondStreaming = ({ c, ctx, sourceApi, response, performance, identity }
 export const respondOpenAIAudioTranscription = async (context: PassthroughResponseStrategyContext): Promise<Response> => {
   const { ctx, response, performance, identity } = context;
   if (!response.ok) {
-    settleUsageMeasurement(ctx, performance, identity, requestOnlyUsageMeasurement(), true);
+    await settleUsageMeasurement(ctx, performance, identity, requestOnlyUsageMeasurement(), true);
     ctx.dump?.error('upstream', identity.upstream);
     return forwardUpstreamResponse(response, { defaultContentType: null });
   }
   return isEventStreamMediaType(response.headers.get('content-type'))
-    ? respondStreaming(context)
+    ? await respondStreaming(context)
     : await respondNonStreaming(context);
 };

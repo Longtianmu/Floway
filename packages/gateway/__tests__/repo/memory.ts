@@ -1,3 +1,4 @@
+import { MemoryUserQuotasRepo } from './memory-user-quotas.ts';
 import { aggregatePerformanceForDisplay } from './performance-overview-oracle.ts';
 import { partitionTelemetryOverviewRecords } from './telemetry-overview-oracle.ts';
 import {
@@ -95,7 +96,7 @@ import { bucketForTtftMs, bucketForTpotUs } from '../../src/shared/performance-h
 import { assertWebSearchProviderName, type WebSearchConfig } from '../../src/shared/web-search-providers.ts';
 import { AgentSetupTokenCollisionError } from '@floway-dev/agent-setup';
 import { addDecimalStrings, canonicalPricingSelectorKey, canonicalizePricingSelector, defaultUserPreferences, multiplyDecimalStrings, parseUserPreferences, tokenUsageUnattributedUserId, usageUpstreamDimensionValue, type BillingMetric, type DecimalString, type PricingSelector, type UserPreferences } from '@floway-dev/protocols/common';
-import { normalizeUpstreamMetricIdentity, upstreamMetricIdentityKey, UpstreamGoneError, type UpstreamRecord } from '@floway-dev/provider';
+import { normalizeUpstreamMetricIdentity, upstreamMetricIdentityKey, UpstreamGoneError, type UpstreamMetricIdentity, type UpstreamMetricResetThreshold, type UpstreamRecord } from '@floway-dev/provider';
 
 const SEED_ADMIN_USER: User = {
   id: SEED_ADMIN_USER_ID,
@@ -1841,6 +1842,22 @@ class MemoryAgentSetupRepo implements AgentSetupRepository {
 
 export class InMemoryRepo implements Repo {
   private upstreamMetricRecords: import('../../src/repo/types.ts').UpstreamMetricRecord[] = [];
+
+  private upstreamResetStarts(upstreamId: string, identity: UpstreamMetricIdentity, threshold: UpstreamMetricResetThreshold, includes: (timestamp: number) => boolean): number[] {
+    const series = (key: string) => this.upstreamMetricRecords.filter(row =>
+      row.upstreamId === upstreamId && includes(row.timestamp) && upstreamMetricIdentityKey(row) === key);
+    const allowance = typeof threshold.full === 'number' ? null : new Map(series(upstreamMetricIdentityKey(threshold.full))
+      .filter(row => row.value > 0).map(row => [row.timestamp, row.value]));
+    const samples = series(upstreamMetricIdentityKey(identity)).toSorted((a, b) => a.timestamp - b.timestamp)
+      .map(row => ({ ...row, full: typeof threshold.full === 'number' ? threshold.full : allowance?.get(row.timestamp) }));
+    return samples.flatMap((sample, index) => {
+      const previous = samples[index - 1];
+      return sample.value === sample.full && previous?.full !== undefined
+        && (threshold.direction === 'used' ? previous.value > previous.full : previous.value < previous.full)
+        && (allowance === null || sample.value > previous.value) ? [sample.timestamp] : [];
+    }).reverse();
+  }
+
   upstreamMetrics: import('../../src/repo/types.ts').UpstreamMetricsRepo = {
     listAll: async () => this.upstreamMetricRecords.toSorted((a, b) => a.timestamp - b.timestamp || a.upstreamId.localeCompare(b.upstreamId) || upstreamMetricIdentityKey(a).localeCompare(upstreamMetricIdentityKey(b))),
     set: async record => {
@@ -1867,7 +1884,7 @@ export class InMemoryRepo implements Repo {
       return [...latest.values()].toSorted((a, b) => a.timestamp - b.timestamp);
     },
     listIdentities: async (upstreamId, before) => [...new Map(this.upstreamMetricRecords
-      .filter(row => row.upstreamId === upstreamId && row.timestamp < before)
+      .filter(row => row.upstreamId === upstreamId && (before === undefined || row.timestamp < before))
       .map(({ name, labels }) => [upstreamMetricIdentityKey({ name, labels }), { name, labels }] as const))
       .entries()].toSorted(([a], [b]) => a.localeCompare(b)).map(([, identity]) => identity),
     latestSample: async (upstreamId, identity, start, end) => {
@@ -1876,21 +1893,12 @@ export class InMemoryRepo implements Repo {
         && record.timestamp >= start && record.timestamp < end).toSorted((a, b) => b.timestamp - a.timestamp)[0];
       return sample === undefined ? null : { timestamp: sample.timestamp, value: sample.value };
     },
-    queryResetStarts: async (upstreamId, identity, threshold, before) => {
-      const series = (key: string) => this.upstreamMetricRecords.filter(row =>
-        row.upstreamId === upstreamId && row.timestamp < before && upstreamMetricIdentityKey(row) === key);
-      const allowance = typeof threshold.full === 'number' ? null : new Map(series(upstreamMetricIdentityKey(threshold.full))
-        .filter(row => row.value > 0).map(row => [row.timestamp, row.value]));
-      const samples = series(upstreamMetricIdentityKey(identity)).toSorted((a, b) => a.timestamp - b.timestamp)
-        .map(row => ({ ...row, full: typeof threshold.full === 'number' ? threshold.full : allowance?.get(row.timestamp) }));
-      return samples.flatMap((sample, index) => {
-        const previous = samples[index - 1];
-        return sample.value === sample.full && previous?.full !== undefined
-          && (threshold.direction === 'used' ? previous.value > previous.full : previous.value < previous.full)
-          && (allowance === null || sample.value > previous.value) ? [sample.timestamp] : [];
-      }).reverse();
-    },
+    queryResetStarts: async (upstreamId, identity, threshold, before) =>
+      this.upstreamResetStarts(upstreamId, identity, threshold, timestamp => timestamp < before),
+    latestReset: async (upstreamId, identity, threshold, after, through) =>
+      this.upstreamResetStarts(upstreamId, identity, threshold, timestamp => timestamp <= through).find(timestamp => timestamp > after) ?? null,
   };
+  userQuotas: MemoryUserQuotasRepo;
   apiKeys: ApiKeyRepo;
   users: MemoryUsersRepo;
   userPreferences: UserPreferencesRepo;
@@ -1924,6 +1932,7 @@ export class InMemoryRepo implements Repo {
   constructor() {
     this.groups = new MemoryGroupsRepo();
     this.users = new MemoryUsersRepo(this.groups);
+    this.userQuotas = new MemoryUserQuotasRepo(this.users);
     this.accessRecords = new MemoryAccessRecordsRepo();
     this.userPreferences = new MemoryUserPreferencesRepo();
     this.sessions = new MemorySessionsRepo();

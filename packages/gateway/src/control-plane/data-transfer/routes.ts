@@ -18,6 +18,7 @@ import { groupNameKey } from '../../repo/group-names.ts';
 import { getRepo } from '../../repo/index.ts';
 import { DIRECT_FALLBACK_IDS } from '../../repo/proxy-fallback-list.ts';
 import type { ApiKey, Group, SiteSettings, UpstreamMetricRecord, PerformanceTelemetryRecord, UsageRecord, User, UserPreferencesRepo, WebSearchUsageRecord } from '../../repo/types.ts';
+import type { QuotaRecord } from '../../user-quotas/schema.ts';
 import { type exportQuery, type importBody } from '../schemas.ts';
 import { saveUpstreams } from '../shared/save-upstreams.ts';
 import { type FullSerializedUpstreamRecord, upstreamRecordToFullJson } from '../upstreams/serialize.ts';
@@ -29,6 +30,7 @@ interface ExportPayload {
   data: {
     users: User[];
     userPreferences: Awaited<ReturnType<UserPreferencesRepo['listAll']>>;
+    userQuotas: QuotaRecord[];
     groups: Array<Group & { memberIds: number[] }>;
     accessRecords: AccessRecordInput[];
     apiKeys: ApiKey[];
@@ -112,9 +114,10 @@ export const exportData = async (c: CtxWithQuery<typeof exportQuery>) => {
   const includePerformance = c.req.valid('query').include_performance === '1';
   const memberships = await repo.groups.listMemberships();
 
-  const [users, userPreferences, groups, accessRecords, apiKeys, usage, webSearchUsage, upstreamMetrics, performance, rawWebSearchConfig, upstreams, proxies, siteSettings] = await Promise.all([
+  const [users, userPreferences, userQuotas, groups, accessRecords, apiKeys, usage, webSearchUsage, upstreamMetrics, performance, rawWebSearchConfig, upstreams, proxies, siteSettings] = await Promise.all([
     repo.users.listIncludingDeleted(),
     repo.userPreferences.listAll(),
+    repo.userQuotas.list(),
     repo.groups.listIncludingDeleted(),
     repo.accessRecords.list(),
     repo.apiKeys.listIncludingDeleted(),
@@ -127,6 +130,7 @@ export const exportData = async (c: CtxWithQuery<typeof exportQuery>) => {
     repo.proxies.list(),
     repo.siteSettings.get(),
   ]);
+  const activeUserIds = new Set(users.filter(user => user.deletedAt === null).map(user => user.id));
 
   const payload: ExportPayload = {
     version: EXPORT_VERSION,
@@ -134,6 +138,7 @@ export const exportData = async (c: CtxWithQuery<typeof exportQuery>) => {
     data: {
       users,
       userPreferences,
+      userQuotas: userQuotas.filter(quota => activeUserIds.has(quota.userId)).map(({ revision: _revision, ...quota }) => quota),
       groups: groups.map(group => ({ ...group, memberIds: memberships.get(group.id) ?? [] })),
       accessRecords: accessRecords.map(({ principal, scope, sortOrder, values }) => ({ principal, scope, sortOrder, values })),
       apiKeys,
@@ -156,7 +161,7 @@ export const importData = async (c: CtxWithJson<typeof importBody>) => {
   const { mode, data: rawData } = c.req.valid('json');
   const parsed = parseImportData(rawData);
   if (parsed.type === 'invalid') return c.json({ error: parsed.error }, 400);
-  const { users, userPreferences, groups, accessRecords, apiKeys, upstreams, proxies, usage, searchUsage, upstreamMetrics, performance, performanceIncluded, searchConfig, siteSettings } = parsed.data;
+  const { users, userPreferences, userQuotas, groups, accessRecords, apiKeys, upstreams, proxies, usage, searchUsage, upstreamMetrics, performance, performanceIncluded, searchConfig, siteSettings } = parsed.data;
 
   const repo = getRepo();
   // Merge mode needs each key's prior dump policy to identify transitions that
@@ -184,6 +189,15 @@ export const importData = async (c: CtxWithJson<typeof importBody>) => {
     ? (await repo.upstreams.list()).filter(upstream => !importedUpstreamIds.has(upstream.id))
     : [];
   const normalizedUpstreams = normalizeUpstreamOrder([...retainedUpstreams, ...upstreams]);
+  const previousQuotas = mode === 'merge' && userQuotas.length > 0 ? await repo.userQuotas.list() : [];
+  const quotaById = new Map(previousQuotas.map(quota => [quota.id, quota]));
+  const quotaByScope = new Map(previousQuotas.map(quota => [JSON.stringify([quota.userId, quota.upstreamId]), quota]));
+  for (const quota of userQuotas) {
+    const previous = quotaById.get(quota.id);
+    if (previous && (previous.userId !== quota.userId || previous.upstreamId !== quota.upstreamId)) {
+      return c.json({ error: 'invalid userQuotas: quota id belongs to another scope' }, 400);
+    }
+  }
 
   if (mode === 'replace') {
     for (const key of preImportKeys) await notifyDisabledBestEffort(key.id, 'replace-mode import');
@@ -192,6 +206,7 @@ export const importData = async (c: CtxWithJson<typeof importBody>) => {
     // validation therefore happens before this delete wave; a storage failure
     // after it begins can still leave a partially restored deployment.
     const deletes: Promise<unknown>[] = [
+      repo.userQuotas.deleteAll(),
       repo.sessions.deleteAll(),
       repo.apiKeys.deleteAll(),
       repo.usage.deleteAll(),
@@ -212,6 +227,13 @@ export const importData = async (c: CtxWithJson<typeof importBody>) => {
 
   // Users precede their API keys, and proxies precede upstream fallback refs.
   for (const user of users) await repo.users.save(user);
+  for (const quota of userQuotas) {
+    const previous = quotaByScope.get(JSON.stringify([quota.userId, quota.upstreamId]));
+    const saved = previous === undefined
+      ? await repo.userQuotas.insert(quota)
+      : await repo.userQuotas.replaceIfCurrent([{ ...quota, id: previous.id, revision: previous.revision }]);
+    if (!saved) throw new Error('Floway: quota changed while restoring the backup');
+  }
   for (const { userId, preferences } of userPreferences) await repo.userPreferences.save(userId, preferences);
   await repo.groups.restore(groups);
   for (const record of accessRecords) await repo.accessRecords.save(record);

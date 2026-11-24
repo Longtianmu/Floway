@@ -1,5 +1,6 @@
 import type { AccessPrincipal, AccessRecord, AccessRecordInput } from '../access-control/types.ts';
 import type { WebSearchConfig, WebSearchProviderName } from '../shared/web-search-providers.ts';
+import type { QuotaRecord } from '../user-quotas/schema.ts';
 import type { AgentSetupRepository } from '@floway-dev/agent-setup';
 import type { AliasSelection, AliasTarget, AnnouncedMetadata, BillingMetric, DecimalString, ModelKind, PricingSelector, UserPreferences } from '@floway-dev/protocols/common';
 import type { PerformanceTelemetryContext, UpstreamMetricIdentity, UpstreamMetricResetThreshold, UpstreamModelsCache, UpstreamRecord } from '@floway-dev/provider';
@@ -653,14 +654,29 @@ export interface UpstreamMetricsRepo {
   // `start`, which is Prometheus's range-query semantics for gauges.
   query(upstreamId: string, start: number, end: number, step: number): Promise<UpstreamMetricRecord[]>;
   latestSample(upstreamId: string, identity: UpstreamMetricIdentity, start: number, end: number): Promise<Pick<UpstreamMetricRecord, 'timestamp' | 'value'> | null>;
-  listIdentities(upstreamId: string, before: number): Promise<UpstreamMetricIdentity[]>;
+  listIdentities(upstreamId: string, before?: number): Promise<UpstreamMetricIdentity[]>;
   queryResetStarts(upstreamId: string, identity: UpstreamMetricIdentity, threshold: UpstreamMetricResetThreshold, before: number): Promise<number[]>;
+  latestReset(upstreamId: string, identity: UpstreamMetricIdentity, threshold: UpstreamMetricResetThreshold, after: number, through: number): Promise<number | null>;
+}
+
+export type QuotaRevision = QuotaRecord & { revision: string };
+
+export interface UserQuotasRepo {
+  // With an upstream filter, also include the user's total quota.
+  list(userId?: number, upstreamId?: string | null): Promise<QuotaRevision[]>;
+  get(id: string): Promise<QuotaRevision | null>;
+  insert(record: QuotaRecord): Promise<boolean>;
+  replaceIfCurrent(records: readonly QuotaRevision[]): Promise<boolean>;
+  delete(id: string): Promise<boolean>;
+  deleteByUserId(userId: number): Promise<void>;
+  deleteAll(): Promise<void>;
 }
 
 export interface Repo {
   // Active users, groups and their memberships must share one read snapshot.
   readUserDirectory(): Promise<UserDirectory>;
   upstreamMetrics: UpstreamMetricsRepo;
+  userQuotas: UserQuotasRepo;
   apiKeys: ApiKeyRepo;
   users: UsersRepo;
   userPreferences: UserPreferencesRepo;
