@@ -1,5 +1,8 @@
 import { test } from 'vitest';
 
+import { accountUsage, CREDIT_BALANCE, LEGACY_BALANCE, USAGE_TOTALS } from './usage-fixture.ts';
+import type { OllamaUsageData } from '../src/account-usage.ts';
+import { ollamaProviderModule } from '../src/index.ts';
 import { createOllamaProvider } from '../src/provider.ts';
 import { initProviderRepo, type UpstreamRecord } from '@floway-dev/provider';
 import { assertEquals, assertExists, jsonResponse, noopUpstreamCallOptions, testFetcher, withMockedFetch } from '@floway-dev/test-utils';
@@ -32,6 +35,18 @@ const buildRecord = (overrides: Partial<UpstreamRecord> = {}): UpstreamRecord =>
   modelsCache: null,
   hue: 210,
   ...overrides,
+});
+
+test('reads Ollama period limits and legacy window deadlines independently', () => {
+  const nextReset = (data: OllamaUsageData, name: string, labels: Record<string, string>) => {
+    const upstream = buildRecord({ state: { usageProbe: { attemptedAt: 1, observation: { fetchedAt: 1, data }, error: null } } });
+    return ollamaProviderModule.readUpstreamMetricResetAt!(upstream, { name, labels });
+  };
+  assertEquals(nextReset(accountUsage(), 'balance.usd', { source: 'included' }), CREDIT_BALANCE.included.period.until);
+  const legacy = { balance: LEGACY_BALANCE, usage: USAGE_TOTALS };
+  assertEquals(nextReset(legacy, 'quota.remaining_percent', { window: 'session' }), LEGACY_BALANCE.included.session.resets_at);
+  assertEquals(nextReset(legacy, 'quota.remaining_percent', { window: 'weekly' }), LEGACY_BALANCE.included.weekly.resets_at);
+  assertEquals(nextReset(legacy, 'balance.usd', { source: 'included' }), null);
 });
 
 const tagsAndShow = async (request: Request): Promise<Response> => {

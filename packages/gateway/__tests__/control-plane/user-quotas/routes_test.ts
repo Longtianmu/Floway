@@ -3,6 +3,7 @@ import { expect, it } from 'vitest';
 import { chargeUserQuota } from '../../../src/user-quotas/accounting.ts';
 import { saveUpstreamForTest } from '../../repo/upstreams.ts';
 import { buildChatGPTUpstreamRecord, requestApp, setupAppTest } from '../../test-utils/app.ts';
+import { putChatGPTQuota } from '@floway-dev/provider-chatgpt';
 
 it('lets admins manage quotas while users can only read their own usage', async () => {
   const { repo, adminSession, apiKey } = await setupAppTest();
@@ -65,4 +66,40 @@ it('offers only provider-owned reset clocks and validates reset inputs', async (
   expect(valid.status).toBe(201);
   const { id } = await valid.json();
   expect((await requestApp(`/api/user-quotas/${id}/reset`, { method: 'POST', headers })).status).toBe(409);
+});
+
+it('publishes the selected upstream deadline to members without moving the usage period', async () => {
+  const { repo, apiKey } = await setupAppTest();
+  const session = await repo.sessions.create(apiKey.userId);
+  const upstream = buildChatGPTUpstreamRecord();
+  await saveUpstreamForTest(repo.upstreams, upstream);
+  const now = Date.now();
+  const observedStart = now - 90 * 60_000;
+  const metric = { name: 'quota.window.used_percent', labels: { limit: 'codex', window_seconds: 18_000 } };
+  await repo.upstreamMetrics.record({ upstreamId: upstream.id, ...metric, timestamp: observedStart - 60_000, value: 50 });
+  await repo.upstreamMetrics.record({ upstreamId: upstream.id, ...metric, timestamp: observedStart, value: 0 });
+  const id = crypto.randomUUID();
+  await repo.userQuotas.insert({
+    id, userId: apiKey.userId, upstreamId: null, limitUsd: '1', enforce: true, startsAt: now, spentUsd: '0', unpriced: false,
+    reset: { kind: 'upstream', upstreamId: upstream.id, metric },
+  });
+  const quota = async () => {
+    const result = await requestApp('/api/user-quotas', { headers: { 'x-floway-session': session.id } });
+    expect(result.status).toBe(200);
+    return (await result.json()).quotas[0];
+  };
+  expect(await quota()).toMatchObject({ id, startsAt: observedStart, renewsAt: null });
+
+  const deadline = now + 2 * 3_600_000;
+  const snapshot = {
+    observed_at: new Date(now - 30_000).toISOString(), active_limit: 'codex',
+    primary_window_minutes: 300, primary_used_percent: 25, primary_reset_after_at: new Date(deadline).toISOString(),
+    secondary_window_minutes: 10_080, secondary_used_percent: 45, secondary_reset_after_at: new Date(now + 3 * 86_400_000).toISOString(),
+  };
+  await putChatGPTQuota(upstream.id, 'acc', snapshot);
+  expect(await quota()).toMatchObject({ id, startsAt: observedStart, renewsAt: deadline });
+  await putChatGPTQuota(upstream.id, 'acc', {
+    ...snapshot, observed_at: new Date(now).toISOString(), primary_reset_after_at: new Date(now - 60_000).toISOString(),
+  });
+  expect(await quota()).toMatchObject({ id, startsAt: observedStart, renewsAt: null });
 });

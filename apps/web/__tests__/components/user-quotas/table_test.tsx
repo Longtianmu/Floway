@@ -1,5 +1,5 @@
-import { fireEvent, screen } from '@testing-library/react';
-import { expect, test, vi } from 'vitest';
+import { act, fireEvent, screen } from '@testing-library/react';
+import { afterEach, expect, test, vi } from 'vitest';
 
 import type { Quota } from '../../../src/components/user-quotas/data';
 import { QuotaTable } from '../../../src/components/user-quotas/table';
@@ -19,6 +19,8 @@ const third = rule('bob-total', 2, 'Bob');
 const actions = { edit: vi.fn(), confirm: vi.fn() };
 
 const setMatch = stubMatchMedia(() => false);
+
+afterEach(() => vi.useRealTimers());
 
 test.each([false, true])('groups admin quotas by user on a narrow viewport: %s', narrow => {
   setMatch(query => narrow && query === '(max-width: 1050px)');
@@ -43,4 +45,27 @@ test('shows a member their own rules without an administrator disclosure', () =>
   expect(screen.queryByRole('button', { name: /Alice/ })).toBeNull();
   expect(screen.getAllByRole('progressbar')).toHaveLength(2);
   expect(screen.getByText('Some historical usage in the first hour could not be attributed to this period')).toBeTruthy();
+});
+
+test('shows only relative reset times and updates them while the quotas are open', () => {
+  const now = Date.parse('2026-11-24T21:45:00Z');
+  vi.useFakeTimers({ now, toFake: ['Date', 'setInterval', 'clearInterval'] });
+  const reset = { kind: 'upstream', upstreamId: 'chat', metric: { name: 'quota', labels: {} } } as const;
+  const calendar = { ...first, reset: { kind: 'day' } as const, renewsAt: Date.parse('2026-11-25T00:00:00Z') };
+  const timed = { ...second, reset, renewsAt: now + 120_000 };
+  const manual = rule('manual', 1, 'Alice');
+  const unavailable = rule('unavailable', 1, 'Alice', { reset, resetAvailable: false });
+  const waiting = rule('waiting', 1, 'Alice', { reset, waitingForReset: true });
+  renderInApp(<QuotaTable quotas={[calendar, timed, manual, unavailable, waiting]} disabled={false} />);
+  expect(screen.getByText('Resets in 2h 15m')).toBeTruthy();
+  expect(screen.getByText('Resets in 2m')).toBeTruthy();
+  expect(screen.getByText('Manual')).toBeTruthy();
+  expect(screen.getByText('Reset upstream unavailable')).toBeTruthy();
+  expect(screen.getByText('No upstream reset observed yet')).toBeTruthy();
+  expect(screen.queryByText(/^Started /)).toBeNull();
+  act(() => { vi.advanceTimersByTime(60_000); });
+  expect(screen.getByText('Resets in 1m')).toBeTruthy();
+  act(() => { vi.advanceTimersByTime(60_000); });
+  expect(screen.queryByText(/^Resets in \d+m$/)).toBeNull();
+  expect(screen.getByText('Reset time unavailable')).toBeTruthy();
 });

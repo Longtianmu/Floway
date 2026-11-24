@@ -1,7 +1,8 @@
 import { isUnsafeObjectKey } from './auth/guards.ts';
+import { assertChatGPTUpstreamRecord } from './config.ts';
 import { findChatGPTAccountIndex, readChatGPTUpstreamState, replaceChatGPTAccount, type ChatGPTQuotaSnapshot, type ChatGPTQuotaSnapshotMap } from './state.ts';
-import { chatgptMetrics } from './upstream-metrics.ts';
-import { recordUpstreamMetrics, getProviderRepo } from '@floway-dev/provider';
+import { chatgptMetrics, chatgptQuotaWindows } from './upstream-metrics.ts';
+import { recordUpstreamMetrics, getProviderRepo, upstreamMetricIdentityKey, type UpstreamMetricIdentity, type UpstreamRecord } from '@floway-dev/provider';
 
 export const CHATGPT_QUOTA_UNKNOWN_ACTIVE_LIMIT = 'unknown';
 
@@ -32,6 +33,19 @@ const projectChatGPTQuota = (snapshot: ChatGPTQuotaSnapshot): ChatGPTQuotaSnapsh
   const { ratelimited_until: _legacyUntil, ...reading } = snapshot;
   const until = chatgptQuotaRestrictionUntil(reading);
   return until === undefined ? reading : { ...reading, ratelimited_until: until };
+};
+
+export const readChatGPTMetricResetAt = (record: UpstreamRecord, metric: UpstreamMetricIdentity): string | null => {
+  assertChatGPTUpstreamRecord(record);
+  const accountId = record.config.accounts[0].chatgptAccountId;
+  const snapshot = readChatGPTUpstreamState(record.state).accounts.find(account => account.chatgptAccountId === accountId)?.quotaSnapshot;
+  if (snapshot == null) return null;
+  const key = upstreamMetricIdentityKey(metric);
+  for (const { data } of Object.values(snapshot).sort((a, b) => b.fetchedAt - a.fetchedAt)) {
+    const window = chatgptQuotaWindows(data).find(({ identity }) => upstreamMetricIdentityKey(identity) === key);
+    if (window !== undefined) return window.resetAt ?? null;
+  }
+  return null;
 };
 
 interface ParseChatGPTQuotaOptions {

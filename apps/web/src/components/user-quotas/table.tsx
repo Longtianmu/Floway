@@ -5,9 +5,10 @@ import type { Quota } from './data';
 import { QuotaProgress } from './progress';
 import { fluentComponents } from '../../fluent';
 import { useTranslation } from '../../i18n/translation';
-import { dateTime } from '../../lib/format-time';
+import { formatRemaining } from '../../lib/format-duration';
 import { useLocale } from '../../lib/use-locale';
 import { useMediaQuery } from '../../lib/use-media-query';
+import { useNow } from '../../lib/use-now';
 import { ResourceListEmptyState, ResourceListPanel } from '../ui/resource-list';
 import { ScrollArea } from '../ui/scroll-area';
 import { TABLE_ACTIONS_WIDTH, TableActions, TableActionsHeader } from '../ui/table-actions';
@@ -31,6 +32,7 @@ interface Actions {
 export function QuotaTable({ quotas, actions, disabled }: { quotas: readonly Quota[]; actions?: Actions; disabled: boolean }) {
   const { t } = useTranslation();
   const locale = useLocale();
+  const now = useNow(60_000);
   const narrow = useMediaQuery('(max-width: 1050px)');
   const styles = useStyles();
   const groupId = useId();
@@ -55,21 +57,22 @@ export function QuotaTable({ quotas, actions, disabled }: { quotas: readonly Quo
       </span>
     </Button>;
   };
-  const period = (quota: Quota) => <div className="grid gap-0.5 min-w-0 [overflow-wrap:anywhere]">
-    <Text size={300}>
-      {quota.reset.kind === 'upstream' && quota.resetSourceName && quota.resetDisplay
-        ? t('quotas.period.source', { upstream: quota.resetSourceName, metric: upstreamMetricDisplayName(quota.resetDisplay, t) })
-        : t(`quotas.period.${quota.reset.kind}`)}
-    </Text>
-    <Text size={200} className="text-fui-fg2">
-      {quota.renewsAt === null
-        ? t('quotas.period.started', { time: dateTime(quota.startsAt, locale) })
-        : t('quotas.period.renews', { time: dateTime(quota.renewsAt, locale) })}
-    </Text>
-    {!quota.resetAvailable && <Text size={200} className="text-fui-fg2">{t('quotas.period.unavailable')}</Text>}
-    {quota.resetAvailable && quota.waitingForReset && <Text size={200} className="text-fui-fg2">{t('quotas.period.waiting')}</Text>}
-    <Text size={200} className="text-fui-fg2">{t(quota.enforce ? 'quotas.enforcement.block' : 'quotas.enforcement.observe')}</Text>
-  </div>;
+  const period = (quota: Quota) => {
+    const remaining = (quota.renewsAt ?? now) - now;
+    const timing = !quota.resetAvailable ? t('quotas.period.unavailable')
+      : remaining > 0 ? t('quotas.period.renews', { time: formatRemaining(remaining, locale) })
+        : quota.reset.kind !== 'manual' && !quota.waitingForReset ? t('quotas.period.unknown') : null;
+    return <div className="grid gap-0.5 min-w-0 [overflow-wrap:anywhere]">
+      <Text size={300}>
+        {quota.reset.kind === 'upstream' && quota.resetSourceName && quota.resetDisplay
+          ? t('quotas.period.source', { upstream: quota.resetSourceName, metric: upstreamMetricDisplayName(quota.resetDisplay, t) })
+          : t(`quotas.period.${quota.reset.kind}`)}
+      </Text>
+      {timing !== null && <Text size={200} className="text-fui-fg2">{timing}</Text>}
+      {quota.resetAvailable && quota.waitingForReset && <Text size={200} className="text-fui-fg2">{t('quotas.period.waiting')}</Text>}
+      <Text size={200} className="text-fui-fg2">{t(quota.enforce ? 'quotas.enforcement.block' : 'quotas.enforcement.observe')}</Text>
+    </div>;
+  };
   const controls = (quota: Quota) => actions && <TableActions>
     <TooltipIconButton disabled={disabled} icon={<EditRegular />} label={t('quotas.actions.edit')} onClick={() => actions.edit(quota)} />
     {quota.reset.kind === 'manual' && <TooltipIconButton

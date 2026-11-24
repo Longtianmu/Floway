@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest';
 
-import { RESET, usage } from './fixtures.ts';
+import { record, RESET, usage } from './fixtures.ts';
+import { kimiCodeProviderModule } from '../src/index.ts';
 import { kimiCodeMetrics, resolveUpstreamMetricDisplay } from '../src/upstream-metrics.ts';
 import { readKimiCodeUsage } from '../src/usage.ts';
 
@@ -9,6 +10,13 @@ test('new subscriptions expose five-hour and monthly quota with a Code contribut
     windows: [{ id: 'five_hour', usedRatio: 0.25, resetsAt: RESET }, { id: 'monthly', usedRatio: 0.5, resetsAt: RESET }],
     monthlyCodeUsedRatio: 0.2,
   });
+});
+
+test('does not borrow a deadline from a different Kimi Code plan window', () => {
+  const upstream = record();
+  const nextReset = (window: string) => kimiCodeProviderModule.readUpstreamMetricResetAt!(upstream, { name: 'quota.used_percent', labels: { window } });
+  expect(nextReset('monthly')).toBe(RESET);
+  expect(nextReset('weekly')).toBeNull();
 });
 
 test('quota violations throw instead of publishing made-up readings', () => {

@@ -5,6 +5,7 @@ import {
   getChatGPTQuota,
   parseChatGPTQuotaHeaders,
   putChatGPTQuota,
+  readChatGPTMetricResetAt,
 } from '../src/quota.ts';
 import type { ChatGPTQuotaSnapshot, ChatGPTQuotaSnapshotEntryMap, ChatGPTUpstreamState } from '../src/state.ts';
 import { initProviderRepo, type UpstreamRecord } from '@floway-dev/provider';
@@ -53,6 +54,31 @@ beforeEach(() => {
 });
 
 afterEach(() => vi.restoreAllMocks());
+
+test('matches the selected ChatGPT limit family and duration rather than the slot order', () => {
+  const observed = '2026-06-05T00:00:00.000Z';
+  const fiveHour = '2026-06-05T02:00:00.000Z';
+  const weekly = '2026-06-07T00:00:00.000Z';
+  const codex = {
+    observed_at: observed, active_limit: 'codex', primary_window_minutes: 10_080, primary_reset_after_at: weekly,
+    secondary_window_minutes: 300, secondary_reset_after_at: fiveHour,
+  };
+  const record = makeRecord({
+    accounts: [{
+      ...baseAccount,
+      quotaSnapshot: {
+        codex: { fetchedAt: Date.parse(observed), data: codex },
+        premium: { fetchedAt: Date.parse(observed) + 1, data: { ...codex, active_limit: 'premium', secondary_reset_after_at: undefined } },
+      },
+    }],
+  });
+  const reset = (limit: string, window_seconds: number) =>
+    readChatGPTMetricResetAt(record, { name: 'quota.window.used_percent', labels: { limit, window_seconds } });
+  expect(reset('codex', 18_000)).toBe(fiveHour);
+  expect(reset('codex', 604_800)).toBe(weekly);
+  expect(reset('premium', 18_000)).toBeNull();
+  expect(reset('unknown', 18_000)).toBeNull();
+});
 
 describe('parseChatGPTQuotaHeaders', () => {
   test('parses a 200 snapshot (no ratelimited_until)', () => {

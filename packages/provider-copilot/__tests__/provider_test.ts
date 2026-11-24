@@ -1,6 +1,7 @@
-import { test, vi } from 'vitest';
+import { expect, test, vi } from 'vitest';
 
 import { clearInProcessCopilotTokenCache } from '../src/auth.ts';
+import { copilotProviderModule } from '../src/index.ts';
 import { emptyKnownModels, mergeKnownModels } from '../src/known-models.ts';
 import { createCopilotProvider } from '../src/provider.ts';
 import { readCopilotUpstreamState, type CopilotUpstreamState } from '../src/state.ts';
@@ -44,6 +45,27 @@ interface CopilotTestRepo {
   getCurrentState: () => unknown;
   overrideSaveState: (impl: (id: string, mutate: (current: unknown) => unknown) => Promise<void>) => void;
 }
+
+test('reports the Copilot seat reset only for a matching metered quota', () => {
+  const observedAt = '2026-11-24T00:00:00.000Z';
+  const deadline = '2026-12-01T00:00:00.000Z';
+  const metered = { entitlement: 100, overage_count: 0, overage_permitted: false, percent_remaining: 30, quota_remaining: 30, unlimited: false };
+  const upstream = buildCopilotUpstream({
+    state: {
+      quotaSnapshot: {
+        fetchedAt: Date.parse(observedAt),
+        data: {
+          observed_at: observedAt, reset_at: deadline,
+          quotas: { premium_interactions: metered, chat: { ...metered, entitlement: 0, quota_remaining: 0, percent_remaining: 0 } },
+        },
+      },
+    },
+  });
+  const nextReset = (quota: string) => copilotProviderModule.readUpstreamMetricResetAt!(upstream, { name: 'quota.remaining', labels: { quota } });
+  expect(nextReset('premium_interactions')).toBe(deadline);
+  expect(nextReset('completions')).toBeNull();
+  expect(nextReset('chat')).toBeNull();
+});
 
 const setupCopilotTest = async (recordOverrides: Partial<UpstreamRecord> = {}): Promise<CopilotTestRepo> => {
   let upstream = buildCopilotUpstream(recordOverrides);

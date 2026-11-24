@@ -1,4 +1,4 @@
-import { metricDisplayResolverForKind } from '../../data-plane/providers/registry.ts';
+import { metricDisplayResolverForKind, readUpstreamMetricResetAt } from '../../data-plane/providers/registry.ts';
 import { type AuthedContext, userFromContext } from '../../middleware/auth.ts';
 import type { CtxWithJson } from '../../middleware/zod-validator.ts';
 import { getRepo } from '../../repo/index.ts';
@@ -29,10 +29,15 @@ export const listUserQuotas = async (c: AuthedContext) => {
     const current = await readQuotaPeriod(repo, record, now);
     if (current === null) return null;
     const { revision: _revision, observedCycleStart: _observedCycleStart, ...quota } = current;
-    const source = quota.reset.kind === 'upstream' ? upstreamsById.get(quota.reset.upstreamId) : undefined;
-    const display = source && quota.reset.kind === 'upstream' ? resetDisplay(source.kind, quota.reset.metric) : null;
+    const reset = quota.reset.kind === 'upstream' ? quota.reset : null;
+    const source = reset === null ? undefined : upstreamsById.get(reset.upstreamId);
+    const display = source && reset !== null ? resetDisplay(source.kind, reset.metric) : null;
+    const reportedReset = source?.enabled && reset !== null && display !== null && quota.resetAvailable
+      ? readUpstreamMetricResetAt(source, reset.metric) : null;
     return {
       ...quota,
+      // Upstream deadlines are for display; only an observed refill starts a new quota period.
+      renewsAt: reportedReset !== null && reportedReset > now ? reportedReset : quota.renewsAt,
       ...quotaProgress(quota),
       username: usersById.get(quota.userId)!,
       upstreamName: quota.upstreamId === null ? null : upstreamsById.get(quota.upstreamId)?.name ?? null,

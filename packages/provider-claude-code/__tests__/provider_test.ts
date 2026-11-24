@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { buildClaudeCodeCatalog, type ClaudeCodeApiModel } from '../src/models.ts';
 import { createClaudeCodeProvider } from '../src/provider.ts';
+import { readClaudeCodeMetricResetAt } from '../src/quota-reset.ts';
+import { parseClaudeCodeQuotaHeaders } from '../src/quota.ts';
 import type { ClaudeCodeAccessTokenEntry, ClaudeCodeAccountCredential, ClaudeCodeUpstreamState } from '../src/state.ts';
 import type { AnthropicMessagesPayload, AnthropicMessagesTextBlockParam } from '@floway-dev/protocols/anthropic-messages';
 import { initProviderRepo, type FlagId, type AnthropicMessagesUpstreamCallOptions, type UpstreamRecord } from '@floway-dev/provider';
@@ -72,6 +74,35 @@ beforeEach(() => {
 });
 
 afterEach(() => vi.restoreAllMocks());
+
+test('uses the newest observation for each Claude Code reset window', () => {
+  const fiveHour = '2026-11-24T14:00:00.000Z';
+  const weekly = '2026-11-28T20:00:00.000Z';
+  const record = makeRecord({
+    accounts: [{
+      ...activeAccount,
+      quotaSnapshot: {
+        fetchedAt: 1,
+        data: parseClaudeCodeQuotaHeaders(new Headers({
+          'anthropic-ratelimit-unified-5h-reset': String(Date.parse(fiveHour) / 1000),
+          'anthropic-ratelimit-unified-7d-reset': String(Date.parse(weekly) / 1000),
+        })),
+      },
+      usageProbeSnapshot: {
+        fetchedAt: 2,
+        data: {
+          five_hour: { utilization: 50, resets_at: null },
+          seven_day_sonnet: { utilization: 20, resets_at: weekly },
+        },
+      },
+    }],
+  });
+  const nextReset = (quota: string) => readClaudeCodeMetricResetAt(record, { name: 'quota.utilization', labels: { quota } });
+  expect(nextReset('five_hour')).toBeNull();
+  expect(nextReset('seven_day')).toBe(weekly);
+  expect(nextReset('seven_day_sonnet')).toBe(weekly);
+  expect(nextReset('extra_usage')).toBeNull();
+});
 
 const sseResponse = (): Response => new Response(
   new ReadableStream({

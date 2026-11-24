@@ -1,7 +1,7 @@
 import { getRepo } from '../../repo/index.ts';
 import { modelsRefreshInputHash } from '../../repo/models-refresh-inputs.ts';
 import type { StoredUpstreamRecord } from '../../repo/types.ts';
-import type { FlagDefaults, Provider, ProviderModule, UpstreamProviderKind, UpstreamRecord } from '@floway-dev/provider';
+import type { FlagDefaults, Provider, ProviderModule, UpstreamMetricIdentity, UpstreamProviderKind, UpstreamRecord } from '@floway-dev/provider';
 import { azureProviderModule } from '@floway-dev/provider-azure';
 import { chatgptProviderModule } from '@floway-dev/provider-chatgpt';
 import { claudeCodeProviderModule } from '@floway-dev/provider-claude-code';
@@ -44,6 +44,12 @@ export const flagDefaultsForKind = (kind: UpstreamProviderKind): FlagDefaults =>
 
 export const metricDisplayResolverForKind = (kind: UpstreamProviderKind) =>
   providersByKind[kind].resolveUpstreamMetricDisplay;
+
+export const readUpstreamMetricResetAt = (record: UpstreamRecord, metric: UpstreamMetricIdentity): number | null => {
+  const reported = providersByKind[record.kind].readUpstreamMetricResetAt?.(record, metric);
+  const instant = typeof reported === 'string' ? Date.parse(reported) : NaN;
+  return Number.isFinite(instant) ? instant : null;
+};
 
 // The upstream scope is a required argument across the catalog-assembly chain
 // (this, `enumerateAddressableModelIds`, `enumerateModelCandidates`) so a

@@ -188,4 +188,6 @@ export interface ProviderModule {
   // upstream of this kind; see each provider package's `defaults.ts`.
   defaultFlags: FlagDefaults;
   resolveUpstreamMetricDisplay?: (identity: UpstreamMetricIdentity, options: UpstreamMetricDisplayOptions) => UpstreamMetricDisplay | null;
+  /** The deadline reported for this metric in stored state, without upstream I/O. */
+  readUpstreamMetricResetAt?: (record: UpstreamRecord, identity: UpstreamMetricIdentity) => string | null;
 }
