@@ -1,3 +1,4 @@
+import { USER_QUOTA_MESSAGE } from '../../../user-quotas/accounting.ts';
 import { appendFailedUpstreams } from '../../shared/failed-upstreams.ts';
 import { inputErrorFields, type ChatServeFailure, type InputErrorDetails } from '../shared/errors.ts';
 import { generateAnthropicId, type AnthropicMessagesStreamEventEx } from '@floway-dev/protocols/anthropic-messages';
@@ -43,6 +44,8 @@ export const renderAnthropicMessagesFailure = (
 ): ExecuteResult<ProtocolFrame<AnthropicMessagesStreamEventEx>> => {
   const endpointPath = endpoint === 'countTokens' ? '/messages/count_tokens' : '/messages';
   switch (failure.kind) {
+  case 'quota-exceeded':
+    return anthropicErrorResult(429, 'rate_limit_error', USER_QUOTA_MESSAGE);
   case 'routing-unavailable':
     return anthropicErrorResult(400, 'invalid_request_error', failure.message);
   case 'model-missing':

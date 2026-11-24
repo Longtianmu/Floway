@@ -79,6 +79,7 @@ import { SqlUpstreamMetricsRepo } from './upstream-metrics-sql.ts';
 import { parseUpstreamHue, parseUpstreamKind } from './upstream-parse.ts';
 import { usageMetricRows } from './usage-metrics.ts';
 import { querySqlUsageOverview } from './usage-overview-sql.ts';
+import { SqlUserQuotasRepo } from './user-quotas-sql.ts';
 import {
   accessScopeDepth,
   accessScopeKey,
@@ -2160,6 +2161,7 @@ class SqlAgentSetupRepo implements AgentSetupRepository {
 
 export class SqlRepo implements Repo {
   upstreamMetrics: SqlUpstreamMetricsRepo;
+  userQuotas: SqlUserQuotasRepo;
   users: UsersRepo;
   userPreferences: UserPreferencesRepo;
   groups: GroupsRepo;
@@ -2222,6 +2224,7 @@ export class SqlRepo implements Repo {
 
   constructor(private readonly db: SqlDatabase) {
     this.upstreamMetrics = new SqlUpstreamMetricsRepo(db);
+    this.userQuotas = new SqlUserQuotasRepo(db);
     this.users = new SqlUsersRepo(db);
     this.userPreferences = new SqlUserPreferencesRepo(db);
     this.groups = new SqlGroupsRepo(db);

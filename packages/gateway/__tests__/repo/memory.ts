@@ -1,3 +1,4 @@
+import { MemoryUserQuotasRepo } from './memory-user-quotas.ts';
 import { aggregatePerformanceForDisplay } from './performance-overview-oracle.ts';
 import { partitionTelemetryOverviewRecords } from './telemetry-overview-oracle.ts';
 import {
@@ -1858,7 +1859,29 @@ export class InMemoryRepo implements Repo {
       }
       return [...latest.values()].toSorted((a, b) => a.timestamp - b.timestamp);
     },
+    listIdentities: async upstreamId => [...new Map(this.upstreamMetricRecords
+      .filter(row => row.upstreamId === upstreamId)
+      .map(row => [upstreamMetricIdentityKey(row), { name: row.name, labels: row.labels }])).values()],
+    latestReset: async (upstreamId, identity, threshold, after, through) => {
+      const records = this.upstreamMetricRecords.filter(row => row.upstreamId === upstreamId && row.timestamp <= through);
+      const samples = records.filter(row => upstreamMetricIdentityKey(row) === upstreamMetricIdentityKey(identity))
+        .sort((a, b) => a.timestamp - b.timestamp);
+      const full = threshold.full;
+      const limit = (timestamp: number) => typeof full === 'number' ? full : records.find(row =>
+        row.timestamp === timestamp && row.value > 0 && upstreamMetricIdentityKey(row) === upstreamMetricIdentityKey(full))?.value;
+      let latest: number | null = null;
+      for (const [index, sample] of samples.entries()) {
+        const previous = samples[index - 1];
+        if (sample.timestamp <= after || previous === undefined || sample.value !== limit(sample.timestamp)) continue;
+        const previousLimit = limit(previous.timestamp);
+        if (previousLimit === undefined) continue;
+        if (threshold.direction === 'used' ? previous.value > previousLimit
+          : previous.value < previousLimit && (typeof full === 'number' || sample.value > previous.value)) latest = sample.timestamp;
+      }
+      return latest;
+    },
   };
+  userQuotas: MemoryUserQuotasRepo;
   apiKeys: ApiKeyRepo;
   users: MemoryUsersRepo;
   userPreferences: UserPreferencesRepo;
@@ -1892,6 +1915,7 @@ export class InMemoryRepo implements Repo {
   constructor() {
     this.groups = new MemoryGroupsRepo();
     this.users = new MemoryUsersRepo(this.groups);
+    this.userQuotas = new MemoryUserQuotasRepo(this.users);
     this.accessRecords = new MemoryAccessRecordsRepo();
     this.userPreferences = new MemoryUserPreferencesRepo();
     this.sessions = new MemorySessionsRepo();

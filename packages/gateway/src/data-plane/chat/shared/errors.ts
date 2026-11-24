@@ -1,3 +1,4 @@
+import { USER_QUOTA_CODE, USER_QUOTA_MESSAGE } from '../../../user-quotas/accounting.ts';
 import type { ApiErrorResult, PerformanceTelemetryContext } from '@floway-dev/provider';
 
 // Failures a chat protocol can render before reaching an upstream; unexpected
@@ -8,7 +9,8 @@ import type { ApiErrorResult, PerformanceTelemetryContext } from '@floway-dev/pr
 export type ChatServeFailure =
   | { readonly kind: 'model-missing'; readonly model: string; readonly failedUpstreams: readonly string[] }
   | { readonly kind: 'model-unsupported'; readonly model: string; readonly failedUpstreams: readonly string[] }
-  | { readonly kind: 'routing-unavailable'; readonly message: string };
+  | { readonly kind: 'routing-unavailable'; readonly message: string }
+  | { readonly kind: 'quota-exceeded' };
 
 export interface InputErrorDetails {
   readonly message: string;
@@ -35,17 +37,21 @@ export const tryCatchChatServeFailure = <TFailure extends { readonly kind: strin
 export const openAiErrorResult = (
   status: number,
   message: string,
-  extra?: { readonly param: string; readonly code: string | null },
+  extra?: { readonly param: string | null; readonly code: string | null },
   performance?: PerformanceTelemetryContext,
+  type = 'invalid_request_error',
 ): ApiErrorResult => ({
   type: 'api-error',
   source: 'gateway',
   http: { status, headers: new Headers({ 'content-type': 'application/json' }) },
   body: new TextEncoder().encode(JSON.stringify({
-    error: { message, type: 'invalid_request_error', ...extra },
+    error: { message, type, ...extra },
   })),
   ...(performance ? { performance } : {}),
 }) satisfies ApiErrorResult;
+
+export const openAiQuotaErrorResult = (): ApiErrorResult =>
+  openAiErrorResult(429, USER_QUOTA_MESSAGE, { param: null, code: USER_QUOTA_CODE }, undefined, 'insufficient_quota');
 
 // Builds the failure value every serve dispatches with after `canServe` has
 // dropped every candidate: `sawModel=true` means the inbound id exists in

@@ -51,7 +51,7 @@ export const respondAnthropicMessages = async (
       const metadata = await eventResultMetadata(result);
       const usage = tokenUsageFromBillableUsage(metadata.billableUsage);
       ctx.dump?.success(metadata.modelIdentity, usage);
-      settle(ctx, metadata.performance, metadata.modelIdentity, usage, false);
+      await settle(ctx, metadata.performance, metadata.modelIdentity, usage, false);
       return Response.json(response, jsonResponseInit(result.http));
     } catch (error) {
       recordFailedRequest(ctx, result.performance);

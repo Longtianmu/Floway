@@ -1,7 +1,9 @@
 import { isEqual } from 'es-toolkit';
 
+import { getRepo } from '../../../../../repo/index.ts';
 import type { User } from '../../../../../repo/types.ts';
 import { sleep } from '../../../../../shared/sleep.ts';
+import { hasQuotaCapacity, USER_QUOTA_CODE, USER_QUOTA_MESSAGE } from '../../../../../user-quotas/accounting.ts';
 import { enumerateModelCandidates } from '../../../../providers/resolution.ts';
 import { stampUpstreamCallStart } from '../../../../shared/attempt-timing.ts';
 import { appendFailedUpstreams } from '../../../../shared/failed-upstreams.ts';
@@ -912,10 +914,10 @@ interface ShimState {
   imageDispatchCount: number;
 }
 
-const recordImageUsage = (state: ShimState, provider: Provider, model: ProviderModel, modelKey: string, responseBody: unknown): void => {
+const recordImageUsage = async (state: ShimState, provider: Provider, model: ProviderModel, modelKey: string, responseBody: unknown): Promise<void> => {
   const usage = tokenUsageFromOpenAIImagesBody(responseBody);
   if (usage === null) return;
-  const promise = recordTokenUsage(state.apiKeyId, {
+  await recordTokenUsage(state, {
     model: model.id,
     upstream: provider.upstreamId,
     modelKey,
@@ -923,7 +925,6 @@ const recordImageUsage = (state: ShimState, provider: Provider, model: ProviderM
   }, usage).catch((error: unknown) => {
     console.error('Failed to record image generation usage:', error);
   });
-  state.backgroundScheduler(promise);
 };
 
 const buildGenerationsBody = (prompt: string, config: ImageGenerationConfig, stream: boolean): Record<string, unknown> => ({
@@ -1007,10 +1008,11 @@ const resolveImageCandidate = async (
   } catch (e) {
     return { ok: false, error: serverError(e) };
   }
-  const match = resolution.candidates.find(c => c.model.endpoints[endpointKey] !== undefined);
-  if (match !== undefined) {
-    return { ok: true, candidate: match };
+  const viable = resolution.candidates.filter(c => c.model.endpoints[endpointKey] !== undefined);
+  for (const candidate of viable) {
+    if (await hasQuotaCapacity(getRepo(), state.user.id, candidate.provider.upstreamId)) return { ok: true, candidate };
   }
+  if (viable.length > 0) return { ok: false, error: { message: USER_QUOTA_MESSAGE, code: USER_QUOTA_CODE, type: 'insufficient_quota', retryable: false } };
   // Split on the resolver's `sawModel` signal the same way serve-prep.ts
   // does for chat: an unknown model id ("model_not_found", 404-shaped) vs
   // a model that exists under some catalog but cannot serve this op
@@ -1149,7 +1151,7 @@ const consumeImageResponse = async (
   if (b64 === null) {
     return { ok: false, error: { type: 'image_generation_error', message: 'Image backend response did not contain image bytes.', code: 'server_error', retryable: true } };
   }
-  recordImageUsage(state, provider, model, modelKey, parsed);
+  await recordImageUsage(state, provider, model, modelKey, parsed);
   return { ok: true, b64, echo: extractEcho(parsed) };
 };
 
@@ -1332,7 +1334,7 @@ const streamImageGeneration = (
   if (finalB64 === undefined) {
     return finish({ ok: false, error: { type: 'image_generation_error', message: 'Image backend stream ended without a completed image.', code: 'server_error', retryable: true } });
   }
-  recordImageUsage(state, provider, model, modelKey, { usage });
+  await recordImageUsage(state, provider, model, modelKey, { usage });
   return finish({ ok: true, b64: finalB64, echo: finalEcho });
 };
 

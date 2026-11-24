@@ -59,7 +59,7 @@ export const respondOpenAIResponses = async (
       const metadata = await eventResultMetadata(result);
       const usage = tokenUsageFromBillableUsage(metadata.billableUsage);
       ctx.dump?.success(metadata.modelIdentity, usage);
-      settle(ctx, metadata.performance, metadata.modelIdentity, usage, state.failed || response.status === 'failed');
+      await settle(ctx, metadata.performance, metadata.modelIdentity, usage, state.failed || response.status === 'failed');
       const init = jsonResponseInit(result.http);
       init.headers.set(OPENAI_RESPONSES_REASONING_INCLUDED_HEADER, OPENAI_RESPONSES_REASONING_INCLUDED_VALUE);
       return Response.json(response, init);
@@ -69,7 +69,7 @@ export const respondOpenAIResponses = async (
         const metadata = await eventResultMetadata(result);
         const usage = tokenUsageFromBillableUsage(metadata.billableUsage);
         ctx.dump?.success(metadata.modelIdentity, usage);
-        settle(ctx, metadata.performance, metadata.modelIdentity, usage, true);
+        await settle(ctx, metadata.performance, metadata.modelIdentity, usage, true);
         const { sequence_number: _sequenceNumber, ...body } = error.cause;
         return Response.json(body, { status: openAIResponsesErrorHttpStatus(error.cause) });
       }

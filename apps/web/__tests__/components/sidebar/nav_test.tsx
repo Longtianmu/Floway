@@ -13,6 +13,7 @@ test('shows capability-gated management pages independently', () => {
   const hidden = renderSidebar(false, false);
   expect(screen.queryByRole('link', { name: 'Upstreams' })).toBeNull();
   expect(screen.queryByRole('link', { name: 'Permissions' })).toBeNull();
+  expect(screen.getByRole('link', { name: 'Quotas' }).getAttribute('href')).toBe('/dashboard/admin/quotas');
   hidden.unmount();
 
   renderSidebar(true, true);

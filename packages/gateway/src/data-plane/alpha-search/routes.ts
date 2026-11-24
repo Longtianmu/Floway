@@ -20,10 +20,13 @@ import { z } from 'zod';
 
 import { type AuthVars, apiKeyFromContext, effectiveUpstreamIdsFromContext, userFromContext } from '../../middleware/auth.ts';
 import { type CtxWithJson, zValidator } from '../../middleware/zod-validator.ts';
+import { getRepo } from '../../repo/index.ts';
 import { backgroundSchedulerFromContext } from '../../runtime/background.ts';
 import { getRuntimeLocation } from '../../runtime/runtime-info.ts';
+import { hasQuotaCapacity } from '../../user-quotas/accounting.ts';
 import { mountPublicRoute } from '../public-route.ts';
 import { passthroughApiError } from '../shared/passthrough-serve.ts';
+import { quotaExceededResponse } from '../shared/quota-response.ts';
 import { relayFetchedResponse } from '../tools/web-search/alpha-search/relay-response.ts';
 import { AlphaSearchModelNotFoundError, resolveAlphaSearchDispatcher } from '../tools/web-search/alpha-search/upstream.ts';
 import type { AlphaSearchDispatcher } from '../tools/web-search/alpha-search/upstream.ts';
@@ -110,6 +113,7 @@ const alphaSearch = async (c: CtxWithJson<typeof alphaSearchRequestSchema>): Pro
       if (error instanceof AlphaSearchModelNotFoundError) return passthroughApiError(c, error.message, 404);
       throw error;
     }
+    if (!await hasQuotaCapacity(getRepo(), userFromContext(c).id, webSearchConfig.passthroughOpenAiSearch.upstreamId)) return quotaExceededResponse(c);
     const headers = new Headers();
     const turnMetadata = c.req.header('x-codex-turn-metadata');
     if (turnMetadata !== undefined) headers.set('x-codex-turn-metadata', turnMetadata);
@@ -117,6 +121,7 @@ const alphaSearch = async (c: CtxWithJson<typeof alphaSearchRequestSchema>): Pro
     return relayFetchedResponse(response);
   }
 
+  if (!await hasQuotaCapacity(getRepo(), userFromContext(c).id, null)) return quotaExceededResponse(c);
   try {
     assertLocalWebSearchSupport(body.commands ?? {});
   } catch (error) {

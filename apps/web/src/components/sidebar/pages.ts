@@ -1,4 +1,5 @@
 import {
+  ChartMultiple20Color,
   Chat20Color,
   Clipboard20Color,
   Cloud20Color,
@@ -74,6 +75,7 @@ export const navGroups: NavGroup[] = [
     labelKey: 'app.navigation.groups.admin',
     items: [
       { to: '/dashboard/admin/users', labelKey: 'directory.title', icon: People20Color, adminOnly: true },
+      { to: '/dashboard/admin/quotas', labelKey: 'quotas.title', icon: ChartMultiple20Color },
       { to: '/dashboard/admin/permissions', labelKey: 'permissions.title', icon: PersonKey20Color, permissions: true },
       { to: '/dashboard/admin/backup-restore', labelKey: 'backupRestore.title', icon: Database20Color, adminOnly: true },
       { to: '/dashboard/admin/site-settings', labelKey: 'settings.site.title', icon: Settings20Color, adminOnly: true },

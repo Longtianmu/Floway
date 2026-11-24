@@ -1,5 +1,5 @@
 import { appendFailedUpstreams } from '../../shared/failed-upstreams.ts';
-import { openAiErrorResult, type ChatServeFailure, type InputErrorDetails } from '../shared/errors.ts';
+import { openAiErrorResult, openAiQuotaErrorResult, type ChatServeFailure, type InputErrorDetails } from '../shared/errors.ts';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
 import type { OpenAIResponsesStreamEventEx } from '@floway-dev/protocols/openai-responses';
 import type { ApiErrorResult, ExecuteResult, PerformanceTelemetryContext } from '@floway-dev/provider';
@@ -19,6 +19,8 @@ export const renderOpenAIResponsesFailure = (
   failure: OpenAIResponsesServeFailure,
 ): ExecuteResult<ProtocolFrame<OpenAIResponsesStreamEventEx>> => {
   switch (failure.kind) {
+  case 'quota-exceeded':
+    return openAiQuotaErrorResult();
   case 'item-not-found':
     return openAiErrorResult(404, `Item with id '${failure.itemId}' not found.`, { param: 'input', code: null });
   case 'routing-unavailable':

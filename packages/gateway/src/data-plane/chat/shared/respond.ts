@@ -52,5 +52,5 @@ export const settleChatSse = async <TEvent>(
   const metadata = await eventResultMetadata(result);
   const usage = tokenUsageFromBillableUsage(metadata.billableUsage);
   const failed = recordSseOutcome(ctx, outcome, metadata.modelIdentity, usage);
-  settle(ctx, metadata.performance, metadata.modelIdentity, usage, failed);
+  await settle(ctx, metadata.performance, metadata.modelIdentity, usage, failed);
 };

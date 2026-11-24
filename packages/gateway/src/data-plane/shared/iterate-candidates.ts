@@ -4,6 +4,8 @@ import type { GatewayCtx } from './gateway-ctx.ts';
 import type { RawAttemptResult } from './raw-attempt-result.ts';
 import { upstreamPerformanceContext } from './telemetry/attribution.ts';
 import { isUpstreamTransportError } from '../../dial/transport-error.ts';
+import { getRepo } from '../../repo/index.ts';
+import { hasQuotaCapacity, UserQuotaExceededError } from '../../user-quotas/accounting.ts';
 import { discardUpstreamResponse, isAbortError, type HttpHead, type ModelCandidate, type PerformanceOperation } from '@floway-dev/provider';
 
 // HTTP in-flight streams are represented by a 2xx response head. Later
@@ -56,19 +58,27 @@ const discardFailure = (ctx: GatewayCtx, result: IterableAttemptResult | undefin
 // still attributes the perf error row to the throwing candidate: the
 // outer catch reads `ctx.attempt.telemetry` and feeds it into
 // `recordFailedRequest`. Callsites don't need to duplicate this stamp.
-export const iterateCandidates = async <T extends IterableAttemptResult>(
+export const iterateCandidates = async <T extends IterableAttemptResult, Denied extends IterableAttemptResult = never>(
   candidates: readonly ModelCandidate[],
   invocationLabel: string,
   ctx: GatewayCtx,
   operation: PerformanceOperation,
   run: (candidate: ModelCandidate) => Promise<T>,
-): Promise<T> => {
+  onQuotaExceeded?: () => Denied,
+): Promise<T | NoInfer<Denied>> => {
   let selected: T | undefined;
   let earliestRetryTime: number | null = null;
   let lastTransportError: Error | undefined;
+  let denied = false;
   try {
     for (const candidate of candidates) {
       ctx.abortSignal?.throwIfAborted();
+      const capacity = await hasQuotaCapacity(getRepo(), ctx.user.id, candidate.provider.upstreamId);
+      ctx.abortSignal?.throwIfAborted();
+      if (!capacity) {
+        denied = true;
+        continue;
+      }
       ctx.attempt.timing.upstreamCallStartedAt = null;
       ctx.attempt.timing.firstOutputTokenAt = null;
       ctx.attempt.telemetry = upstreamPerformanceContext(ctx, candidate, operation);
@@ -96,6 +106,10 @@ export const iterateCandidates = async <T extends IterableAttemptResult>(
 
     if (earliestRetryTime === null && lastTransportError !== undefined) throw lastTransportError;
     if (selected === undefined) {
+      if (denied) {
+        if (onQuotaExceeded !== undefined) return onQuotaExceeded();
+        throw new UserQuotaExceededError();
+      }
       throw new Error(`invariant broken: ${invocationLabel} exhausted candidates with neither success nor failure`);
     }
     const terminal = selected;

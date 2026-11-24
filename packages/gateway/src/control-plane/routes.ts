@@ -25,10 +25,12 @@ import { kimiCodeUsage } from './upstreams/kimi-code.ts';
 import { fetchSavedModels, previewModels } from './upstreams/models.ts';
 import { ollamaUsage } from './upstreams/ollama.ts';
 import { createUpstream, deleteUpstream, getUpstream, getUpstreamBlueprint, listUpstreamOptions, listUpstreams, reorderUpstreams, updateUpstream } from './upstreams/routes.ts';
+import { createUserQuota, deleteUserQuota, listQuotaResetOptions, listUserQuotas, resetUserQuota, updateUserQuota } from './user-quotas/routes.ts';
 import { changeOwnPassword, createUser, deleteUser, getUserDirectory, listUsers, updateOwnPreferences, updateUser } from './users/routes.ts';
 import { type AuthedContext, type AuthVars, userFromContext } from '../middleware/auth.ts';
 import { zValidator } from '../middleware/zod-validator.ts';
 import { getRuntimeInfo } from '../runtime/runtime-info.ts';
+import { createQuotaSchema, quotaPolicySchema } from '../user-quotas/schema.ts';
 
 const adminOnlyMiddleware = async (c: AuthedContext, next: Next) => {
   if (!userFromContext(c).isAdmin) {
@@ -63,6 +65,7 @@ export const controlPlaneRoutes = new Hono<{ Variables: AuthVars }>()
   .get('/api/search-usage', zValidator('query', webSearchUsageQuery), webSearchUsage)
   .get('/api/performance/overview', zValidator('query', performanceQuery), performanceOverview)
   .get('/api/upstream-metrics', zValidator('query', upstreamMetricsQuery), upstreamMetrics)
+  .get('/api/user-quotas', listUserQuotas)
   .get('/api/models', zValidator('query', modelsQuery), controlPlaneModels)
   .get('/api/upstreams', listUpstreams)
   .get('/api/upstreams/blueprint', adminOnlyMiddleware, getUpstreamBlueprint)
@@ -114,6 +117,11 @@ export const controlPlaneRoutes = new Hono<{ Variables: AuthVars }>()
     .post('/users', zValidator('json', createUserBody), createUser)
     .patch('/users/:id', zValidator('json', updateUserBody), updateUser)
     .delete('/users/:id', deleteUser)
+    .get('/user-quota-reset-options/:id', listQuotaResetOptions)
+    .post('/user-quotas', zValidator('json', createQuotaSchema), createUserQuota)
+    .put('/user-quotas/:id', zValidator('json', quotaPolicySchema), updateUserQuota)
+    .post('/user-quotas/:id/reset', resetUserQuota)
+    .delete('/user-quotas/:id', deleteUserQuota)
     .get('/groups', listGroups)
     .post('/groups', zValidator('json', createGroupBody), createGroup)
     .patch('/groups/:id', zValidator('json', updateGroupBody), updateGroup)

@@ -105,5 +105,8 @@ export const divideDecimalString = (value: DecimalString, divisor: DecimalString
 export const decimalStringIsZero = (value: DecimalString): boolean =>
   parseDecimal(value, 'decimal', ARITHMETIC_LIMITS).eq(0);
 
+export const compareDecimalStrings = (left: DecimalString, right: DecimalString): -1 | 0 | 1 =>
+  parseDecimal(left, 'left decimal', ARITHMETIC_LIMITS).cmp(parseDecimal(right, 'right decimal', ARITHMETIC_LIMITS));
+
 export const decimalStringToNumber = (value: DecimalString): number =>
   Number(parseDecimal(value, 'decimal', ARITHMETIC_LIMITS).toFixed());

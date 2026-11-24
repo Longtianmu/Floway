@@ -1,10 +1,12 @@
 import { openaiResponsesAttempt } from './attempt.ts';
 import { openaiResponsesCreatedAt, wrapOpenAIResponsesStatefulOutput } from './client-output.ts';
 import { completeOpenAIResponsesCompaction } from './compaction-resource.ts';
+import { renderOpenAIResponsesFailure } from './errors.ts';
 import type { OpenAIResponsesAttemptResult } from './interceptors/types.ts';
 import { syntheticEventsFromCompaction } from './items/output.ts';
 import { prepareOpenAIResponsesServePlan } from './serve-prep.ts';
 import { iterateCandidates } from '../../shared/iterate-candidates.ts';
+import { openAiQuotaErrorResult } from '../shared/errors.ts';
 import type { ChatGatewayCtx } from '../shared/gateway-ctx.ts';
 import { serializeOpenAIResponsesStream, shouldSerializeStreamItems } from '../shared/stream-compatibility/index.ts';
 import type { ProtocolFrame } from '@floway-dev/protocols/common';
@@ -46,6 +48,7 @@ export const openaiResponsesServe = {
         const enabled = shouldSerializeStreamItems(providerModelOf(candidate).enabledFlags, 'openaiResponses', headers.get('user-agent'));
         return { ...result, events: serializeOpenAIResponsesStream(result.events, enabled) };
       },
+      () => renderOpenAIResponsesFailure({ kind: 'quota-exceeded' }),
     );
     return result;
   },
@@ -79,6 +82,7 @@ export const openaiResponsesServe = {
         if (result.type === 'result') ctx.affinity.select(candidate);
         return result;
       },
+      openAiQuotaErrorResult,
     );
     if (result.type !== 'result') return result;
 

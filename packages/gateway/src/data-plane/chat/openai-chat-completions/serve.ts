@@ -52,6 +52,7 @@ export const openaiChatCompletionsServe = {
         if (result.type === 'events') ctx.affinity.select(candidate);
         return result;
       },
+      () => renderOpenAIChatCompletionsFailure({ kind: 'quota-exceeded' }),
     );
   },
 };

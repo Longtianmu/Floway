@@ -1,8 +1,9 @@
 import type { AccessPrincipal, AccessRecord, AccessRecordInput } from '../access-control/types.ts';
 import type { WebSearchConfig, WebSearchProviderName } from '../shared/web-search-providers.ts';
+import type { QuotaRecord } from '../user-quotas/schema.ts';
 import type { AgentSetupRepository } from '@floway-dev/agent-setup';
 import type { AliasSelection, AliasTarget, AnnouncedMetadata, BillingMetric, DecimalString, ModelKind, PricingSelector, UserPreferences } from '@floway-dev/protocols/common';
-import type { PerformanceTelemetryContext, UpstreamMetricIdentity, UpstreamModelsCache, UpstreamRecord } from '@floway-dev/provider';
+import type { PerformanceTelemetryContext, UpstreamMetricIdentity, UpstreamMetricResetThreshold, UpstreamModelsCache, UpstreamRecord } from '@floway-dev/provider';
 
 // Provider config, flag overrides, and catalog transport advance this version;
 // runtime state and non-model metadata do not.
@@ -650,12 +651,28 @@ export interface UpstreamMetricsRepo {
   // The latest sample of each series in every `step`-wide bucket counted from
   // `start`, which is Prometheus's range-query semantics for gauges.
   query(upstreamId: string, start: number, end: number, step: number): Promise<UpstreamMetricRecord[]>;
+  listIdentities(upstreamId: string): Promise<UpstreamMetricIdentity[]>;
+  latestReset(upstreamId: string, identity: UpstreamMetricIdentity, threshold: UpstreamMetricResetThreshold, after: number, through: number): Promise<number | null>;
+}
+
+export type QuotaRevision = QuotaRecord & { revision: string };
+
+export interface UserQuotasRepo {
+  // With an upstream filter, also include the user's total quota.
+  list(userId?: number, upstreamId?: string | null): Promise<QuotaRevision[]>;
+  get(id: string): Promise<QuotaRevision | null>;
+  insert(record: QuotaRecord): Promise<boolean>;
+  replaceIfCurrent(records: readonly QuotaRevision[]): Promise<boolean>;
+  delete(id: string): Promise<boolean>;
+  deleteByUserId(userId: number): Promise<void>;
+  deleteAll(): Promise<void>;
 }
 
 export interface Repo {
   // Active users, groups and their memberships must share one read snapshot.
   readUserDirectory(): Promise<UserDirectory>;
   upstreamMetrics: UpstreamMetricsRepo;
+  userQuotas: UserQuotasRepo;
   apiKeys: ApiKeyRepo;
   users: UsersRepo;
   userPreferences: UserPreferencesRepo;

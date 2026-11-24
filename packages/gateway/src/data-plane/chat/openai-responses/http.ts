@@ -109,7 +109,7 @@ export const openaiResponsesHttp = {
         } else {
           ctx.dump?.success(result.modelIdentity, result.usage);
         }
-        settle(
+        await settle(
           ctx,
           result.performance,
           result.modelIdentity,

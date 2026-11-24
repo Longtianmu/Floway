@@ -60,6 +60,7 @@ export const anthropicMessagesServe = {
         const enabled = shouldSerializeStreamItems(providerModelOf(candidate).enabledFlags, 'anthropicMessages', headers.get('user-agent'));
         return { ...result, events: serializeAnthropicMessagesStream(result.events, enabled) };
       },
+      () => renderAnthropicMessagesFailure({ kind: 'quota-exceeded' }, 'generate'),
     );
   },
 
@@ -87,6 +88,7 @@ export const anthropicMessagesServe = {
       ctx,
       'chat',
       candidate => anthropicMessagesAttempt.countTokens({ payload: selection.payloadFor(candidate), ctx, candidate, headers, anthropicBeta }),
+      () => renderAnthropicMessagesFailure({ kind: 'quota-exceeded' }, 'countTokens'),
     );
   },
 };

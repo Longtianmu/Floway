@@ -151,6 +151,7 @@ export const deleteUser = async (c: AuthedContext) => {
   await repo.accessRecords.deleteByPrincipal({ kind: 'user', id });
   const ok = await repo.users.softDelete(id);
   if (!ok) return c.json({ error: 'user not found' }, 404);
+  await repo.userQuotas.deleteByUserId(id);
   return c.json({ ok: true });
 };
 
